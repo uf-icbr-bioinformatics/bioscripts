@@ -54,6 +54,7 @@ class outFile():
 class mfrun():
     """A class representing the whole run. Includes the refDesc object and the list of output file objects."""
     rd = None
+    infile = None
     outfiles = []
     writeRef = False            # If true, writes the reference sequence at the beginning of each output file
     reportFile = False          # Name of report file, if desired
@@ -62,11 +63,13 @@ class mfrun():
     summaryStream = None
     excludeGCG = True           # 
 
-    def parseArgs(self):
+    def parseArgs(self, args):
         """Parse command-line arguments creating outfiles."""
 
         prev = False
-        for arg in sys.argv[2:]:
+        if '-h' in args:
+            usage()
+        for arg in args:
             if prev == "r":
                 self.reportFile = arg
                 prev = False
@@ -81,11 +84,14 @@ class mfrun():
                 prev = "s"
             elif (arg == "-gcg"):
                 self.excludeGCG = False
+            elif self.infile == None:
+                self.infile = arg
             else:
                 pdash = arg.find('-')
                 pcolon = arg.find(':', pdash)
                 if (pdash == -1) or (pcolon == -1):
-                    print "Cannot parse argument `{}'. Format should be: low-high:filename.".format(arg)
+                    sys.stderr.write("Cannot parse argument `{}'. Format should be: low-high:filename.\n".format(arg))
+                    sys.exit(-2)
                 else:
                     low = arg[0:pdash]
                     high = arg[pdash+1:pcolon]
@@ -215,10 +221,15 @@ and the total number of Cs in the list `positions' actually present in `seq' (ie
 ### Main
 
 def main():
-    infile = sys.argv[1]
-
     run = mfrun()
-    run.parseArgs()
+    run.parseArgs(sys.argv[1:])
+
+    if run.infile == None:
+        sys.stderr.write("""No reference file specified. Please use the -h option for usage.\n""")
+        sys.exit(-3)
+    if len(run.outfiles) == 0:
+        sys.stderr.write("""No output files specified. Please use the -h option for usage.\n""")
+        sys.exit(-4)
 
     seqs = loadSequences(infile)
     rd = refDesc(seqs.next(), run.excludeGCG)   # reference sequence
@@ -265,8 +276,10 @@ def main():
     print "{} sequences written.".format(nwritten)
 
 def usage():
-    print """Usage: methylfilter.py input.fa [options] outdesc ..."""
-    print """
+    sys.stderr.write("""methylfilter.py - separate sequences by average methylation.
+
+Usage: methylfilter.py input.fa [options] outdesc ...
+
 The input file should be a fasta file in which the first sequence 
 is the reference. All other sequences are compared to the reference
 to determine % methylation.
@@ -283,17 +296,18 @@ filename. Any number of outdesc arguments can be used.
 
 Options:
 
-  -a | -addref - Write reference sequence at the beginning of each output file.
+ -a, -addref           | Write reference sequence at the beginning of each 
+                         output file.
+ -r, -report filename  | Write to `filename' a report showing, for each input
+                         sequence, its % methylation and the output file it
+                         was written to.
+ -s, -summary filename | Write to `filename' a summary showing the number of
+                         sequences written to each output file.
+ -gcg                  | Do not exclude GCG sites from analysis.
 
-  -r | -report filename - Write to `filename' a report showing, for each input
-                          sequence, its % methylation and the output file it
-                          was written to.
-
-  -s | -summary filename - Write to `filename' a summary showing the number of
-                           sequences written to each output file.
-
-  -gcg - Do not exclude GCG sites from analysis.
-"""
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""")
+    sys.exit(-1)
 
 if __name__ == "__main__":
     

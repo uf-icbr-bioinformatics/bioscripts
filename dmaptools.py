@@ -72,20 +72,24 @@ Write results to `outfile'."""
     return nwritten
         
 def usage():
-    sys.stderr.write("""Usage: dmaptools.py mcompfile matfile1 matfile2 [outfile]
+    sys.stderr.write("""dmaptools.py - Merge methylation data.
+
+Usage: dmaptools.py mcompfile matfile1 matfile2 [outfile]
 
 Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
 listed in `mcompfile', containing differentially-methylated C positions. Write
 the results to standard output or to `outfile' if specified.
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """)
+    sys.exit(-1)
 
 if __name__ == "__main__":
     outstream = None
-    if len(sys.argv) < 4:
-        usage()
-    elif len(sys.argv) == 4:
+    nargs = len(sys.argv)
+    if nargs == 4:
         mergeMatFiles(sys.argv[1], sys.argv[2], sys.argv[3], sys.stdout)
-    elif len(sys.argv) == 5:
+    elif nargs == 5:
         with open(sys.argv[4], "w") as out:
             mergeMatFiles(sys.argv[1], sys.argv[2], sys.argv[3], out)
     else:

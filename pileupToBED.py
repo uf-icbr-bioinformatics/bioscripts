@@ -80,7 +80,9 @@ class PTB():
             self.repstream = sys.stderr
 
     def usage(self):
-        sys.stderr.write("""Usage: pileupToBED.py [options] - Convert a samtools pileup to a BED file.
+        sys.stderr.write("""pileupToBED.py - Convert a samtools pileup to a BED file.
+
+Usage: pileupToBED.py [options]
 
 Options:
 
@@ -93,9 +95,9 @@ Options:
 -s score      | Specify minimum score (default: {})
 -c cov        | Specify minimum coverage (default: {})
 
-(c) A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """.format(self.maxGap, self.minScore, self.minCov))
-        sys.exit(1)
+        sys.exit(-1)
 
     def close(self):
         if self.infile:

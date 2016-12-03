@@ -18,7 +18,6 @@ class BAMreader(object):
         self.bamfile = bamfile
         self.aln = pysam.AlignmentFile(self.bamfile, "rb")
 
-    
     def countAlignments(self):
         sys.stderr.write("Counting alignments in {}... ".format(self.bamfile))
         self.nalignments = self.aln.count(read_callback='all')
@@ -52,6 +51,28 @@ class BAMreader(object):
                 else:
                     out.write(line)
 
+def usage():
+    sys.stderr.write("""regionsCount.py - compute coverage in specified regions.
+
+Usage: regionsCount.py [-z] [-q qual] [-o outfile] bamfile bedfile
+
+This program examines a BAM file `bamfile' and computes coverage in all intervals
+contained in BED file `bedfile'. For each line in the BED file the output (sent to 
+standard output, or to `outfile' if specified) consists of the original contents of
+the line followed by two additional columns: the total coverage in the interval and
+its RPKM (number of reads in the interval in millions divided by the size of the 
+interval in kB).
+
+Options:
+ -h         | print this usage message.
+ -o outfile | write output to `outfile' (default: standard output)
+ -q qual    | discard reads with quality score below `qual' (default: {})
+ -z         | do not discard intervals with coverage of 0
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""".format(BAMreader.qual))
+    sys.exit(-1)
+
 def parseArgs(args):
     global B
     global bedfile
@@ -63,7 +84,6 @@ def parseArgs(args):
     for a in args:
         if a == '-h':
             usage()
-            return B
         elif next == '-o':
             outfile = a
             next = ''

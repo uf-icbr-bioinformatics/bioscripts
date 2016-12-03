@@ -6,7 +6,7 @@
 import sys
 from Bio import SeqIO
 
-EXCLGCG=True
+EXCLGCG=False
 
 # Utility classes
 
@@ -34,7 +34,7 @@ class refDesc():
 def loadSequences(filename):
     return SeqIO.parse(filename, "fasta")
 
-def detectCG(seq, length, excludeGCG=True):
+def detectCG(seq, length, excludeGCG=False):
     """Returns the list of C positions in CG dinucleotides in sequence `seq'.
 If `excludeGCG' is True, ignores GCG positions."""
     result = []
@@ -55,7 +55,7 @@ If `excludeGCG' is True, ignores GCG positions."""
             candidate = False
     return result
 
-def detectGC(seq, length, excludeGCG=True):
+def detectGC(seq, length, excludeGCG=False):
     """Returns the list of C positions in GC dinucleotides in sequence `seq'.
 If `excludeGCG' is True, ignores GCG positions."""
     result = []
@@ -75,15 +75,41 @@ If `excludeGCG' is True, ignores GCG positions."""
 def formatTabDelim(stream, l):
     stream.write("\t".join(l) + "\n")
 
+def usage():
+    sys.stderr.write("""methreport.py - report methylation rate at CG and GC positions.
+
+Usage: methreport.py [-gcg] infile [outfile]
+
+`Infile' should be a multi-FASTA file in which the first sequence is assumed to
+be the reference. All other sequences should have the same length as the reference
+and be aligned to it. This program will identify all CG and GC positions in the 
+reference sequence (including GCG positions if the -gcg option is specified) and 
+report to the output the nummber and fraction of unconverted Cs at each position.
+
+Output is written to `outfile', is specified, or to standard output. Entries for
+CG positions are written first, followed by those for GC positions. The output is
+in tab-delimited format with three columns: position, number of unconverted Cs, 
+fraction of unconverted Cs (over total number of sequences examined).
+
+Options:
+ -gcg | Do not exclude GCG positions from analysis.
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""")
+    sys.exit(-1)
+
 def main():
     global EXCLGCG
     infile = ""
     outfile = ""
 
     # Parse arguments
-    for arg in sys.argv[1:]:
+    args = sys.argv[1:]
+    if '-h' in args:
+        usage()
+    for arg in args:
         if arg == "-gcg":
-            EXCLGCG = False
+            EXCLGCG = True
         elif infile == "":
             infile = arg
         else:
@@ -109,8 +135,12 @@ def main():
         for p in GCarr:
             if s[p[0]] == 'C':
                 p[1] += 1
-
-    with open(outfile, "w") as out:
+                
+    if outfile:
+        out = open(outfile, "w")
+    else:
+        out = sys.stdout
+    try:
         formatTabDelim(out, ["#CG", "Sites:", str(len(CGarr))])
         formatTabDelim(out, ["CG pos", "Num C", "Perc C"])
         for pair in CGarr:
@@ -120,7 +150,9 @@ def main():
         formatTabDelim(out, ["GC pos", "Num C", "Perc C"])
         for pair in GCarr:
             formatTabDelim(out, [str(pair[0]), str(pair[1]), str(1.0 * pair[1] / nreads)])
-        
+    finally:
+        if outfile:
+            out.close()
 
 if __name__ == "__main__":
     main()
