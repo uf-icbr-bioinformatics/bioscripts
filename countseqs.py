@@ -64,27 +64,31 @@ def countSeqsFastq(f):
     return (nseqs, nbases)
 
 def usage():
-    sys.stdout.write("""Usage: countseqs.py [-h] [-m] [-t] [-o outfile] files...
+    sys.stderr.write("""countseqs.py - Count sequences in fastq files.
+
+Usage: countseqs.py [-h] [-m] [-t] [-o outfile] files...
 
 Prints the number of sequences contained in the specified files. Files can be 
 in fasta or fastq format, optionally compressed with gzip. Output is in four 
 columns (tab-delimited): filename, number of sequences, total number of 
-bases, average sequence length
+bases, average sequence length.
 
--h: print this usage message
--o: write output to outfile (instead of standard output)
--t: print total of all files at the end
--m: print number of reads in millions
+Options:
 
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics
+-h         | print this usage message
+-o outfile | write output to outfile (instead of standard output)
+-t         | print total of all files at the end
+-m         | print number of reads in millions
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """)
+    sys.exit(-1)
 
 if __name__ == "__main__":
     files = []
     next = ""
     if '-h' in sys.argv:
         usage()
-        sys.exit(-1)
     for a in sys.argv[1:]:
         if next == '-o':
             OUTPUT = open(a, "w")

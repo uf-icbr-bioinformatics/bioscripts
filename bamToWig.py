@@ -156,7 +156,6 @@ def parseArgs(args, td):
 
     if '-h' in args:
         usage()
-        sys.exit()
     for a in args:
         if a == "-f":
             td.diff = True
@@ -189,22 +188,24 @@ def parseArgs(args, td):
     return infile
 
 def usage():
-    print """bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
+    sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
 
 Usage: bamToWig.py [-dntwfp] [-o wigfile] bamfile
 
-Options: -o FILE   Name of output file (default is stdout)
-         -w INT    Set window size to Z
-         -n INT    Normalize values by number of reads N
-         -s SCALE  Scale values by SCALE (y = r * SCALE / N)
-         -t STR    Set track title to S
-         -d STR    Set track description to D
-         -f        Converts diff file to bedGraph (value column: 8)
-         -m        Convert diff meth file to bedGraph (value column: 5)
-         -p        Convert a Homer peaks.txt file to bedGraph
+Options: 
+ -o FILE  | Name of output file (default: stdout)
+ -w W     | Set window size to W (default: 100)
+ -n N     | Normalize values by number of reads N
+ -s SCALE | Scale values by SCALE (y = r * SCALE / N)
+ -t S     | Set track title to S
+ -d D     | Set track description to D
+ -f       | Converts diff file to bedGraph (value column: 8)
+ -m       | Convert diff meth file to bedGraph (value column: 5)
+ -p       | Convert a Homer peaks.txt file to bedGraph
 
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics
-"""
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""")
+    sys.exit(-1)
 
 def main(args):
     td = trackdata()

@@ -62,6 +62,7 @@ conversion.
 
 (c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """)
+    sys.exit(-1)
 
 if __name__ == "__main__":
     if len(sys.argv) == 1 or sys.argv[1] == '-h':

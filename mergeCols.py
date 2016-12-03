@@ -40,7 +40,9 @@ class Opts():
         self.valid = False
 
 def usage():
-    sys.stderr.write("""mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] files...
+    sys.stderr.write("""mergeCols.py - Merge columns from multiple files.
+
+Usage: mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] files...
 
 Combine gene data from multiple input files into a matrix. The program assumes that 
 each input files has one column containing identifiers (e.g. gene identifiers) and 
@@ -59,6 +61,7 @@ Options:
 -names ... | comma-separated list of sample names (otherwise, use names
              of input files without extension)
 """)
+    sys.exit(-1)
 
 def parseInt(s):
     try:
@@ -100,7 +103,6 @@ def parseArgs(args):
             opts.dc = 6
         elif a == "-h":
             usage()
-            exit(1)
         else:
             opts.infiles.append(a)
     opts.nfiles = len(opts.infiles)
@@ -158,4 +160,4 @@ if __name__ == "__main__":
     if opts.valid:
         main(opts)
     else:
-        sys.stderr.write("Use mergeCols -h for usage instructions.\n")
+        usage()

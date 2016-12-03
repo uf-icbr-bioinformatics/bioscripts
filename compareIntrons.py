@@ -42,11 +42,10 @@ class Params():
 
     def parseArgs(self, args):
         next = ""
+        if '-h' in args:
+            usage()
         for a in args:
-            if a == "-h":
-                usage()
-                sys.exit(-2)
-            elif next == "-i1":
+            if next == "-i1":
                 self.introns1file = a
                 next = ""
             elif next == "-j1":
@@ -73,7 +72,7 @@ class Params():
                 self.bedfile = a
         if self.bedfile == None or self.introns1file == None or self.introns2file == None:
             sys.stderr.write("Error: not enough input files specified.")
-            sys.exit(-1)
+            sys.exit(-2)
     
     def readFiles(self):
         self.intr1 = readBEDfile(self.introns1file)
@@ -129,8 +128,22 @@ class Params():
 
 def usage():
     progname = os.path.split(sys.argv[0])[1]
-    sys.stderr.write("""{} [options] intronsdb - analyze intron retention.
-""".format(progname))
+    sys.stderr.write("""{} - analyze intron retention.
+
+Usage: {} [options] intronsdb
+
+Options:
+ -i1 FILE | Name of BED file for introns in sample 1 (required)
+ -i2 FILE | Name of BED file for introns in sample 2 (required)
+ -j1 FILE | Name of BED file for junctions in sample 1
+ -j2 FILE | Name of BED file for junctions in sample 2
+ -o  FILE | Set output file to FILE (default: stdout)
+ -fc F    | Set fold change threshold to F (default: {})
+ -t  T    | Set coverage threshold to T (default: {})
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""".format(progname, progname, Params.fc, Params.thr))
+    sys.exit(-1)
 
 if __name__ == "__main__":
     P = Params()

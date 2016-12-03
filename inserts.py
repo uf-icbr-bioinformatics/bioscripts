@@ -54,6 +54,10 @@ class GTFregions():
             elif r[0] <= pos <= r[1]:
                 return True
 
+def usage():
+    sys.stderr.write("TBW\n")
+    sys.exit(-1)
+
 class Params():
     maxsize = 1000
     outfile = None
@@ -62,6 +66,8 @@ class Params():
     gtfregions = None
 
     def __init__(self, args):
+        if '-h' in args:
+            usage()
         next = ""
         for a in args:
             if next == '-o':

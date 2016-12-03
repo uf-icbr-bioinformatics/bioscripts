@@ -34,16 +34,12 @@ class Cov():
         other.effbases += self.effbases
         other.total += self.total
         
-def parseArgs(C, args):
-    next = ""
-    filename = None
+def usage():
+    sys.stderr.write("""chromCoverage.py - Report per-chromosome coverage.
 
-    for a in args:
-        if next == '-m':
-            C.mincov = int(a)
-        elif a == '-h':
-            sys.stderr.write("""Usage: chromCoverage.py [-h] [-m min] [coveragefile]
+Usage: chromCoverage.py [-m min] [coveragefile]
        chromCoverage.py -c combinedfile coveragefiles...
+       chromCoverage.py -h
 
 Read coverage data from standard input (or from coveragefile if provided)
 and write by-chromosome coverage data to standard output. The input file 
@@ -62,14 +58,27 @@ efflen   - number of bases having non-zero depth
 effperc  - percent of bases having non-zero depth
 effcov   - ratio between total and efflen
 
-If -m is specified, only positions with depth over 'min' are considered
-for the computation of 'total' and 'efflen'.
+Options:
 
-With -c, combine multiple 'coveragefiles' into a single 'combinedfile'.
+ -h     | print this usage message.
+ -m MIN | only positions with depth over MIN are considered
+          for the computation of 'total' and 'efflen'.
+ -c     | combine multiple 'coveragefiles' into a single 'combinedfile'.
+          [not implemented yet]
 
-The -h option prints this usage message.
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """)
-            exit(-1)
+    exit(-1)
+    
+def parseArgs(C, args):
+    next = ""
+    filename = None
+
+    if '-h' in args:
+        usage()
+    for a in args:
+        if next == '-m':
+            C.mincov = int(a)
         elif a == '-m':
             next = a
         else:
@@ -88,20 +97,22 @@ if __name__=="__main__":
     else:
         stream = open(filename, "r")
 
-    sys.stdout.write("Chrom\tTotal\tLength\tCoverage\tEfflen\tEffperc\tEffcov\n")
-    while True:
-        line = stream.readline()
-        if not line:
-            break
-        parsed = line.split("\t")
-        if len(parsed) > 2:
-            chrom = parsed[0]
-            pos = int(parsed[1])
-            cov = int(parsed[2])
-            if cov > C.mincov:
-                C.add(chrom, pos, cov, Tot)
-    C.update(Tot)
-    C.report()
-    Tot.report()
-    stream.close()
+    try:
+        sys.stdout.write("Chrom\tTotal\tLength\tCoverage\tEfflen\tEffperc\tEffcov\n")
+        while True:
+            line = stream.readline()
+            if not line:
+                break
+            parsed = line.split("\t")
+            if len(parsed) > 2:
+                chrom = parsed[0]
+                pos = int(parsed[1])
+                cov = int(parsed[2])
+                if cov > C.mincov:
+                    C.add(chrom, pos, cov, Tot)
+        C.update(Tot)
+        C.report()
+        Tot.report()
+    finally:
+        stream.close()
 
