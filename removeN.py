@@ -2,6 +2,20 @@
 
 import sys
 
+### Error messages
+
+class Err():
+    HELP = 1
+    NOFILE = 2
+
+    MSGS = {1: "Help requested.",
+            2: "Input file not specified."}
+
+def errmsg(code, exit=False):
+    sys.stderr.write("Error: " + Err.MSGS[code] + "\n")
+    if exit:
+        sys.exit(code)
+
 MAXL = 70
 
 def main(instream, out):
@@ -36,7 +50,7 @@ Options:
 
 (c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """.format(MAXL))
-    sys.exit(-1)
+    sys.exit(Err.HELP)
 
 def parseArgs(args):
     infile = None
@@ -47,18 +61,19 @@ def parseArgs(args):
     if '-h' in args:
         usage()
     for a in args:
-        if next == "-l":
+        if next == "-E":
+            errmsg(int(a), True)
+        elif next == "-l":
             MAX = int(a)
             next = ""
-        elif a == "-l":
+        elif a in ["-E", "-l"]:
             next = a
         elif infile == None:
             infile = a
         else:
             outfile = a
     if infile == None:
-        sys.stderr.write("Error: input file not specified.\n")
-        sys.exit(-2)
+        errmsg(Err.NOFILE, True)
     return (infile, outfile)
 
 if __name__ == "__main__":
