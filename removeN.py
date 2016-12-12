@@ -1,20 +1,30 @@
 #!/usr/bin/env python
 
 import sys
+import utils
 
-### Error messages
+def usage():
+    sys.stderr.write("""removeN.py - remove Ns from sequences in FASTA file
 
-class Err():
-    HELP = 1
-    NOFILE = 2
+Usage: removeN.py [-l len] infile [outfile]
 
-    MSGS = {1: "Help requested.",
-            2: "Input file not specified."}
+Remove all occurrences of N or n from the sequences in input multi-FASTA 
+file `infile'. Output is written to standard output or to `outfile' if 
+specified, in FASTA format.
 
-def errmsg(code, exit=False):
-    sys.stderr.write("Error: " + Err.MSGS[code] + "\n")
-    if exit:
-        sys.exit(code)
+Options:
+
+ -l len | set line length in output file to `len' (default: {})
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""".format(MAXL))
+    sys.exit(P.HELP)
+
+### Program object
+
+P = utils.Prog("removeN", version="1.0", usage=usage,
+               errors = [(1, 'HELP', "Help requested."),
+                         (2, 'NOFILE', "Input file not specified.")])
 
 MAXL = 70
 
@@ -35,45 +45,25 @@ def main(instream, out):
                         out.write('\n')
                         nout = 0
 
-def usage():
-    sys.stderr.write("""removeN.py - remove Ns from sequences in FASTA file
-
-Usage: removeN.py [-l len] infile [outfile]
-
-Remove all occurrences of N or n from the sequences in input multi-FASTA 
-file `infile'. Output is written to standard output or to `outfile' if 
-specified, in FASTA format.
-
-Options:
-
- -l len | set line length in output file to `len' (default: {})
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""".format(MAXL))
-    sys.exit(Err.HELP)
-
 def parseArgs(args):
     infile = None
     outfile = None
     next = ""
     global MAXL
 
-    if '-h' in args:
-        usage()
+    P.standardOpts(args)
     for a in args:
-        if next == "-E":
-            errmsg(int(a), True)
-        elif next == "-l":
+        if next == "-l":
             MAX = int(a)
             next = ""
-        elif a in ["-E", "-l"]:
+        elif a in ["-l"]:
             next = a
         elif infile == None:
             infile = a
         else:
             outfile = a
     if infile == None:
-        errmsg(Err.NOFILE, True)
+        P.errmsg(P.NOFILE, True)
     return (infile, outfile)
 
 if __name__ == "__main__":
