@@ -71,7 +71,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     P.standardOpts(args)
 
-    cmd = sys.argv[1]
+    cmd = args[0]
     if cmd == 'split':
         (nin, nplus, nminus) = split(sys.argv[2], sys.argv[3], sys.argv[4])
         sys.stderr.write("Total: {}\nTop: {}\nBottom: {}\n".format(nin, nplus, nminus))
