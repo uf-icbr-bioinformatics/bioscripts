@@ -2,6 +2,22 @@
 
 import sys
 
+import Script
+
+
+def usage():
+    sys.stderr.write("""dmaptools.py - Merge methylation data.
+
+Usage: dmaptools.py mcompfile matfile1 matfile2 [outfile]
+
+Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
+listed in `mcompfile', containing differentially-methylated C positions. Write
+the results to standard output or to `outfile' if specified.
+
+""")
+
+P = Script.Script("dmaptools.py", version="1.0", usage=usage)
+
 def makeMatMap(matfile):
     hdr = []
     mmap = {}
@@ -71,27 +87,14 @@ Write results to `outfile'."""
     sys.stderr.write("done, {} sites in output.\n".format(nwritten))
     return nwritten
         
-def usage():
-    sys.stderr.write("""dmaptools.py - Merge methylation data.
-
-Usage: dmaptools.py mcompfile matfile1 matfile2 [outfile]
-
-Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
-listed in `mcompfile', containing differentially-methylated C positions. Write
-the results to standard output or to `outfile' if specified.
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    sys.exit(-1)
-
 if __name__ == "__main__":
     outstream = None
     nargs = len(sys.argv)
     if nargs == 4:
-        mergeMatFiles(sys.argv[1], sys.argv[2], sys.argv[3], sys.stdout)
+        mergeMatFiles(P.isfile(sys.argv[1]), P.isFile(sys.argv[2]), P.isFile(sys.argv[3]), sys.stdout)
     elif nargs == 5:
         with open(sys.argv[4], "w") as out:
-            mergeMatFiles(sys.argv[1], sys.argv[2], sys.argv[3], out)
+            mergeMatFiles(P.isFile(sys.argv[1]), P.isFile(sys.argv[2]), P.isFile(sys.argv[3]), out)
     else:
-        usage()
+        P.usage()
 

@@ -3,7 +3,8 @@
 import sys
 import math
 import os.path
-import utils
+
+import Script
 
 ### Program object
 
@@ -24,7 +25,7 @@ Options:
 
 """.format(progname, progname, Params.fc, Params.thr))
 
-P = utils.Prog("compareIntrons", version="1.0", usage=usage)
+P = Script.Script("compareIntrons", version="1.0", usage=usage)
 
 def readBEDfile(bedfile):
     dict = {}
@@ -65,8 +66,6 @@ class Params():
     def parseArgs(self, args):
         P.standardOpts(args)
         next = ""
-        if '-h' in args:
-            usage()
         for a in args:
             if next == "-i1":
                 self.introns1file = P.isFile(a)

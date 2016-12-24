@@ -3,7 +3,8 @@
 import sys
 import gzip
 import os.path
-import utils
+
+import Script
 
 __doc__ = """This is doc."""
 
@@ -21,18 +22,14 @@ bases, average sequence length.
 
 Options:
 
--h         | print this usage message
+-h, --help | print this usage message
 -o outfile | write output to outfile (instead of standard output)
 -t         | print total of all files at the end
 -m         | print number of reads in millions
 
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """)
-    sys.exit(P.HELP)
 
-P = utils.Prog("countseqs", "1.0", usage=usage,
-               errors=[(1, 'HELP', "Help requested."),
-                       (2, 'NOFILE', "File `{}' not found.")])
+P = Script.Script("countseqs.py", "1.0", usage=usage)
 
 OUTPUT = sys.stdout
 TOTAL = False
@@ -55,8 +52,6 @@ def genOpen(filename, mode):
 def countSeqs(filename):
     nseqs = 0
     nbases = 0
-    if not os.path.isfile(filename):
-        P.errmsg(P.NOFILE, filename)
     with genOpen(filename, "r") as f:
         line = f.readline()
         if len(line) > 0:
@@ -111,10 +106,10 @@ if __name__ == "__main__":
         elif a == '-t':
             TOTAL = True
         else:
-            files.append(a)
+            files.append(P.isFile(a))
 
     if len(files) == 0:
-        usage()
+        P.errmsg(P.NOFILE)
 
     try:
         total = 0

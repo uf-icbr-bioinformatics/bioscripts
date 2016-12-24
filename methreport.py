@@ -5,6 +5,32 @@
 
 import sys
 from Bio import SeqIO
+import Script
+
+# Script object
+
+def usage():
+    sys.stderr.write("""methreport.py - report methylation rate at CG and GC positions.
+
+Usage: methreport.py [-gcg] infile [outfile]
+
+`Infile' should be a multi-FASTA file in which the first sequence is assumed to
+be the reference. All other sequences should have the same length as the reference
+and be aligned to it. This program will identify all CG and GC positions in the 
+reference sequence (including GCG positions if the -gcg option is specified) and 
+report to the output the nummber and fraction of unconverted Cs at each position.
+
+Output is written to `outfile', is specified, or to standard output. Entries for
+CG positions are written first, followed by those for GC positions. The output is
+in tab-delimited format with three columns: position, number of unconverted Cs, 
+fraction of unconverted Cs (over total number of sequences examined).
+
+Options:
+ -gcg | Do not exclude GCG positions from analysis.
+
+""")
+
+P = Script.Script("methreport.py", version="1.0", usage=usage)
 
 EXCLGCG=False
 
@@ -75,28 +101,6 @@ If `excludeGCG' is True, ignores GCG positions."""
 def formatTabDelim(stream, l):
     stream.write("\t".join(l) + "\n")
 
-def usage():
-    sys.stderr.write("""methreport.py - report methylation rate at CG and GC positions.
-
-Usage: methreport.py [-gcg] infile [outfile]
-
-`Infile' should be a multi-FASTA file in which the first sequence is assumed to
-be the reference. All other sequences should have the same length as the reference
-and be aligned to it. This program will identify all CG and GC positions in the 
-reference sequence (including GCG positions if the -gcg option is specified) and 
-report to the output the nummber and fraction of unconverted Cs at each position.
-
-Output is written to `outfile', is specified, or to standard output. Entries for
-CG positions are written first, followed by those for GC positions. The output is
-in tab-delimited format with three columns: position, number of unconverted Cs, 
-fraction of unconverted Cs (over total number of sequences examined).
-
-Options:
- -gcg | Do not exclude GCG positions from analysis.
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    sys.exit(-1)
 
 def main():
     global EXCLGCG
@@ -105,13 +109,12 @@ def main():
 
     # Parse arguments
     args = sys.argv[1:]
-    if '-h' in args:
-        usage()
+    P.standardOpts(args)
     for arg in args:
         if arg == "-gcg":
             EXCLGCG = True
         elif infile == "":
-            infile = arg
+            infile = P.isFile(arg)
         else:
             outfile = arg
 

@@ -2,7 +2,9 @@
 
 import sys
 import pysam
-import utils
+import os.path
+
+import Script
 
 def usage():
     sys.stderr.write("""bisconv.py command [args...] - Extract aligned reads from BAM file based on conversion strand.
@@ -10,12 +12,13 @@ def usage():
 This program examines the ZS tag of the reads in a BAM file produced by BSMAP to identify reads 
 coming from conversion of the top or bottom strands. Commands:
 
--h                                  | print this help message.
-split <bamfile> <topfile> <botfile> | write reads from top converted strand to <topfile>, and
+-h, --help                          | Print this help message.
+-v, --version                       | Display version number.
+split <bamfile> <topfile> <botfile> | Write reads from top converted strand to <topfile>, and
                                     | reads from bottom converted strand to <botfile>.
-zs+   <bamfile> <topfile>           | write reads from top converted strand to <topfile>. If
+zs+   <bamfile> <topfile>           | Write reads from top converted strand to <topfile>. If
                                     | <topfile> is -, write to standard output.
-zs-   <bamfile> <botfile>           | write reads from bottom converted strand to <botfile>. If
+zs-   <bamfile> <botfile>           | Write reads from bottom converted strand to <botfile>. If
                                     | <botfile> is -, write to standard output.
 
 Reads in <topfile> will only show C->T conversion, while reads in <botfile> will only show G->A
@@ -23,7 +26,7 @@ conversion.
 
 """)
 
-P = utils.Prog("bisconv.py", version="1.0", usage=usage)
+P = Script.Script("bisconv.py", version="1.0", usage=usage)
 
 ## Code
 
@@ -71,13 +74,21 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     P.standardOpts(args)
 
+    if len(args) == 0:
+        P.usage()
     cmd = args[0]
     if cmd == 'split':
-        (nin, nplus, nminus) = split(sys.argv[2], sys.argv[3], sys.argv[4])
+        if len(args) < 4:
+            P.errmsg(P.NOFILE)
+        (nin, nplus, nminus) = split(P.isFile(args[1]), args[2], args[3])
         sys.stderr.write("Total: {}\nTop: {}\nBottom: {}\n".format(nin, nplus, nminus))
     elif cmd == 'zs+':
-        (nin, nout) = extract(sys.argv[2], sys.argv[3], '+')
+        if len(args) < 3:
+            P.errmsg(P.NOFILE)
+        (nin, nout) = extract(P.isFile(args[1]), args[2], '+')
         sys.stderr.write("Total: {}\nTop: {}\n".format(nin, nout))
     else:
-        extract(sys.argv[2], sys.argv[3], '-')
+        if len(args) < 3:
+            P.errmsg(P.NOFILE)
+        (nin, nout) = extract(P.isfile(args[1]), args[2], '-')
         sys.stderr.write("Total: {}\nBottom: {}\n".format(nin, nout))

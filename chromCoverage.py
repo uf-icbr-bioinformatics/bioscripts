@@ -2,6 +2,44 @@
 
 import sys
 
+import Script
+
+def usage():
+    sys.stderr.write("""chromCoverage.py - Report per-chromosome coverage.
+
+Usage: chromCoverage.py [-m min] [coveragefile]
+       chromCoverage.py -c combinedfile coveragefiles...
+
+Read coverage data from standard input (or from coveragefile if provided)
+and write by-chromosome coverage data to standard output. The input file 
+should be in the format produced by the bamtools 'coverage' command:
+
+  chrom   position   depth
+
+The output file contains six columns:
+
+  chrom  total  length  coverage  efflen  effcov
+
+total    - sum of depth at all positions
+length   - chromosome length (highest position)
+coverage - ratio between total and length
+efflen   - number of bases having non-zero depth
+effperc  - percent of bases having non-zero depth
+effcov   - ratio between total and efflen
+
+Options:
+
+ -h     | Print this usage message.
+ -v     | Print version number.
+ -m MIN | only positions with depth over MIN are considered
+          for the computation of 'total' and 'efflen'.
+ -c     | combine multiple 'coveragefiles' into a single 'combinedfile'.
+          [not implemented yet]
+
+""")
+    
+P = Script.Script("chromCoverage.py", version="1.0", usage=usage)
+
 class Cov():
     chrom = ""
     mincov = 0
@@ -34,55 +72,17 @@ class Cov():
         other.effbases += self.effbases
         other.total += self.total
         
-def usage():
-    sys.stderr.write("""chromCoverage.py - Report per-chromosome coverage.
-
-Usage: chromCoverage.py [-m min] [coveragefile]
-       chromCoverage.py -c combinedfile coveragefiles...
-       chromCoverage.py -h
-
-Read coverage data from standard input (or from coveragefile if provided)
-and write by-chromosome coverage data to standard output. The input file 
-should be in the format produced by the bamtools 'coverage' command:
-
-  chrom   position   depth
-
-The output file contains six columns:
-
-  chrom  total  length  coverage  efflen  effcov
-
-total    - sum of depth at all positions
-length   - chromosome length (highest position)
-coverage - ratio between total and length
-efflen   - number of bases having non-zero depth
-effperc  - percent of bases having non-zero depth
-effcov   - ratio between total and efflen
-
-Options:
-
- -h     | print this usage message.
- -m MIN | only positions with depth over MIN are considered
-          for the computation of 'total' and 'efflen'.
- -c     | combine multiple 'coveragefiles' into a single 'combinedfile'.
-          [not implemented yet]
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    exit(-1)
-    
 def parseArgs(C, args):
     next = ""
     filename = None
 
-    if '-h' in args:
-        usage()
     for a in args:
         if next == '-m':
-            C.mincov = int(a)
+            C.mincov = P.toInt(a)
         elif a == '-m':
             next = a
         else:
-            filename = a
+            filename = P.isFile(a)
     return filename
 
 if __name__=="__main__":
@@ -90,7 +90,10 @@ if __name__=="__main__":
     C = Cov()
     Tot = Cov()
     Tot.chrom = "Total"
-    filename = parseArgs(C, sys.argv[1:])
+    args = sys.argv[1:]
+    P.standardOpts(args)
+
+    filename = parseArgs(C, args)
 
     if filename == None:
         stream = sys.stdin

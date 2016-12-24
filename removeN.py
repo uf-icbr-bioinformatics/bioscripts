@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import sys
-import utils
+import Script
 
 MAXL = 70
 
@@ -22,7 +22,7 @@ Options:
 
 ### Program object
 
-P = utils.Prog("removeN", version="1.0", usage=usage)
+P = Script.Script("removeN", version="1.0", usage=usage)
 
 def main(instream, out):
     nout = 0

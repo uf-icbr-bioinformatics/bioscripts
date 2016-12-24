@@ -3,14 +3,15 @@
 import sys
 import os.path
 
-class Prog():
+class Script():
     name = ""
     version = "1.0"
     copyright = "(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida"
     usagefun = None
     errorNames = {}
     errorMsg = {}
-    
+    errorCode = 1
+
     def __init__(self, name, version="1.0", usage=None, errors=[]):
         """Errors should be a list of tuples: (code, name, message)."""
         self.name = name
@@ -18,27 +19,36 @@ class Prog():
         self.usagefun = usage
         self.errorMsg = {}
         self.errorNames = {}
-        self.defineErrors([(1, 'ERR', "Internal error", "Internal error: {}"),
-                           (2, 'NOFILE', "Missing file arguments", "Input file(s) not specified."),
-                           (3, 'BADFILE', "File not found", "Input file `{}' does not exist."),
-                           (4, 'BADINT', "Bad integer", "`{}' is not an integer number."),
-                           (5, 'BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
+        self.defineErrors([('ERR', "Internal error", "Internal error: {}"),
+                           ('NOFILE', "Missing file arguments", "Input file(s) not specified."),
+                           ('BADFILE', "File not found", "Input file `{}' does not exist."),
+                           ('BADINT', "Bad integer", "`{}' is not an integer number."),
+                           ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
+        self.errorCode = 100
         self.defineErrors(errors)
 
     def defineErrors(self, errors):
         for e in errors:
-            self.errorNames[e[0]] = e[2]
-            if len(e) == 4:
-                self.errorMsg[e[0]] = e[3]
+            self.errorNames[self.errorCode] = e[1]
+            if len(e) == 3:
+                self.errorMsg[self.errorCode] = e[2]
             else:
-                self.errorMsg[e[0]] = e[2]
-            setattr(self, e[1], e[0])
+                self.errorMsg[self.errorCode] = e[1]
+            setattr(self, e[0], self.errorCode)
+            self.errorCode += 1
+    
+    def showErrors(self):
+        for (code, name) in self.errorNames.iteritems():
+            sys.stderr.write("{}: {}\n".format(code, name))
+
+    def usage(self):
+        self.usagefun()
+        sys.stderr.write(self.copyright + "\n")
+        sys.exit(0)
 
     def standardOpts(self, args):
         if '-h' in args or '--help' in args:
-            self.usagefun()
-            sys.stderr.write(self.copyright + "\n")
-            sys.exit(0)
+            self.usage()
         if '-v' in args or '--version' in args:
             sys.stderr.write("{} version {}\n".format(self.name, self.version))
             sys.exit(0)
@@ -53,6 +63,9 @@ class Prog():
                 else:
                     sys.stderr.write("Unknown error code {}\n".format(errcode))
                     sys.exit(0)
+            else:
+                self.showErrors()
+                sys.exit(0)
 
     def errmsg(self, code, *args):
         if code in self.errorMsg:
