@@ -3,6 +3,36 @@
 import sys
 import gzip
 import os.path
+import utils
+
+__doc__ = """This is doc."""
+
+### Program definition
+
+def usage():
+    sys.stderr.write("""countseqs.py - Count sequences in fastq files.
+
+Usage: countseqs.py [-h] [-m] [-t] [-o outfile] files...
+
+Prints the number of sequences contained in the specified files. Files can be 
+in fasta or fastq format, optionally compressed with gzip. Output is in four 
+columns (tab-delimited): filename, number of sequences, total number of 
+bases, average sequence length.
+
+Options:
+
+-h         | print this usage message
+-o outfile | write output to outfile (instead of standard output)
+-t         | print total of all files at the end
+-m         | print number of reads in millions
+
+(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
+""")
+    sys.exit(P.HELP)
+
+P = utils.Prog("countseqs", "1.0", usage=usage,
+               errors=[(1, 'HELP', "Help requested."),
+                       (2, 'NOFILE', "File `{}' not found.")])
 
 OUTPUT = sys.stdout
 TOTAL = False
@@ -25,6 +55,8 @@ def genOpen(filename, mode):
 def countSeqs(filename):
     nseqs = 0
     nbases = 0
+    if not os.path.isfile(filename):
+        P.errmsg(P.NOFILE, filename)
     with genOpen(filename, "r") as f:
         line = f.readline()
         if len(line) > 0:
@@ -63,33 +95,12 @@ def countSeqsFastq(f):
             nseqs += 1
     return (nseqs, nbases)
 
-def usage():
-    sys.stderr.write("""countseqs.py - Count sequences in fastq files.
-
-Usage: countseqs.py [-h] [-m] [-t] [-o outfile] files...
-
-Prints the number of sequences contained in the specified files. Files can be 
-in fasta or fastq format, optionally compressed with gzip. Output is in four 
-columns (tab-delimited): filename, number of sequences, total number of 
-bases, average sequence length.
-
-Options:
-
--h         | print this usage message
--o outfile | write output to outfile (instead of standard output)
--t         | print total of all files at the end
--m         | print number of reads in millions
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    sys.exit(-1)
-
 if __name__ == "__main__":
     files = []
     next = ""
-    if '-h' in sys.argv:
-        usage()
-    for a in sys.argv[1:]:
+    args = sys.argv[1:]
+    P.standardOpts(args)
+    for a in args:
         if next == '-o':
             OUTPUT = open(a, "w")
             next = ""
@@ -104,7 +115,8 @@ if __name__ == "__main__":
 
     if len(files) == 0:
         usage()
-    else:
+
+    try:
         total = 0
         totbases = 0
         for filename in files:
@@ -113,4 +125,5 @@ if __name__ == "__main__":
             totbases += nbases
         if TOTAL:
             OUTPUT.write("Total\t{}\t{}\t{:.1f}\n".format(printReads(total), totbases, 1.0*totbases/total))
+    finally:
         OUTPUT.close()

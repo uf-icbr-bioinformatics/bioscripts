@@ -3,6 +3,28 @@
 import sys
 import math
 import os.path
+import utils
+
+### Program object
+
+def usage():
+    progname = os.path.split(sys.argv[0])[1]
+    sys.stderr.write("""{} - analyze intron retention.
+
+Usage: {} [options] intronsdb
+
+Options:
+ -i1 FILE | Name of BED file for introns in sample 1 (required)
+ -i2 FILE | Name of BED file for introns in sample 2 (required)
+ -j1 FILE | Name of BED file for junctions in sample 1
+ -j2 FILE | Name of BED file for junctions in sample 2
+ -o  FILE | Set output file to FILE (default: stdout)
+ -fc F    | Set fold change threshold to F (default: {})
+ -t  T    | Set coverage threshold to T (default: {})
+
+""".format(progname, progname, Params.fc, Params.thr))
+
+P = utils.Prog("compareIntrons", version="1.0", usage=usage)
 
 def readBEDfile(bedfile):
     dict = {}
@@ -41,38 +63,38 @@ class Params():
         self.junc2 = {}
 
     def parseArgs(self, args):
+        P.standardOpts(args)
         next = ""
         if '-h' in args:
             usage()
         for a in args:
             if next == "-i1":
-                self.introns1file = a
+                self.introns1file = P.isFile(a)
                 next = ""
             elif next == "-j1":
-                self.juncs1file = a
+                self.juncs1file = P.isFile(a)
                 next = ""
             elif next == "-i2":
-                self.introns2file = a
+                self.introns2file = P.isFile(a)
                 next = ""
             elif next == "-j2":
-                self.juncs2file = a
+                self.juncs2file = P.isFile(a)
                 next = ""
             elif next == "-o":
                 self.outfile = a
                 next = ""
             elif next == "-fc":
-                self.fc = float(a)
+                self.fc = P.toFloat(a)
                 next = ""
             elif next == "-t":
-                self.thr = float(a)
+                self.thr = P.toFloat(a)
                 next = ""
             elif a in ["-i1", "-j1", "-i2", "-j2", "-fc", "-o", "-t"]:
                 next = a
             else:
                 self.bedfile = a
         if self.bedfile == None or self.introns1file == None or self.introns2file == None:
-            sys.stderr.write("Error: not enough input files specified.")
-            sys.exit(-2)
+            P.errmsg(P.NOFILE)
     
     def readFiles(self):
         self.intr1 = readBEDfile(self.introns1file)
@@ -126,33 +148,14 @@ class Params():
                                 maxdn = l2fc
         return (nin, nup, ndown, maxup, maxdn)
 
-def usage():
-    progname = os.path.split(sys.argv[0])[1]
-    sys.stderr.write("""{} - analyze intron retention.
-
-Usage: {} [options] intronsdb
-
-Options:
- -i1 FILE | Name of BED file for introns in sample 1 (required)
- -i2 FILE | Name of BED file for introns in sample 2 (required)
- -j1 FILE | Name of BED file for junctions in sample 1
- -j2 FILE | Name of BED file for junctions in sample 2
- -o  FILE | Set output file to FILE (default: stdout)
- -fc F    | Set fold change threshold to F (default: {})
- -t  T    | Set coverage threshold to T (default: {})
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""".format(progname, progname, Params.fc, Params.thr))
-    sys.exit(-1)
-
 if __name__ == "__main__":
-    P = Params()
-    P.parseArgs(sys.argv[1:])
-    P.readFiles()
-    if P.outfile:
-        with open(P.outfile, "w") as out:
-            (nin, nup, ndown, maxup, maxdn) = P.compare(out)
+    PA = Params()
+    PA.parseArgs(sys.argv[1:])
+    PA.readFiles()
+    if PA.outfile:
+        with open(PA.outfile, "w") as out:
+            (nin, nup, ndown, maxup, maxdn) = PA.compare(out)
     else:
-        (nin, nup, ndown, maxup, maxdn) = P.compare(sys.stdout)
+        (nin, nup, ndown, maxup, maxdn) = PA.compare(sys.stdout)
 
     sys.stderr.write("{}\t{}\t{}\t{}\t{}\n".format(nin, nup, ndown, maxup, maxdn))

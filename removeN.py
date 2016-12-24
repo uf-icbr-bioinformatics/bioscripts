@@ -3,6 +3,8 @@
 import sys
 import utils
 
+MAXL = 70
+
 def usage():
     sys.stderr.write("""removeN.py - remove Ns from sequences in FASTA file
 
@@ -16,17 +18,11 @@ Options:
 
  -l len | set line length in output file to `len' (default: {})
 
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
 """.format(MAXL))
-    sys.exit(P.HELP)
 
 ### Program object
 
-P = utils.Prog("removeN", version="1.0", usage=usage,
-               errors = [(1, 'HELP', "Help requested."),
-                         (2, 'NOFILE', "Input file not specified.")])
-
-MAXL = 70
+P = utils.Prog("removeN", version="1.0", usage=usage)
 
 def main(instream, out):
     nout = 0
@@ -54,7 +50,7 @@ def parseArgs(args):
     P.standardOpts(args)
     for a in args:
         if next == "-l":
-            MAX = int(a)
+            MAX = P.toInt(a)
             next = ""
         elif a in ["-l"]:
             next = a
@@ -63,14 +59,17 @@ def parseArgs(args):
         else:
             outfile = a
     if infile == None:
-        P.errmsg(P.NOFILE, True)
+        P.errmsg(P.NOFILE)
     return (infile, outfile)
 
 if __name__ == "__main__":
     (infile, outfile) = parseArgs(sys.argv[1:])
-    with open(infile, "r") as f:
-        if outfile:
-            with open(sys.argv[2], "w") as out:
-                main(f, out)
-        else:
-            main(f, sys.stdout)
+    try:
+        with open(infile, "r") as f:
+            if outfile:
+                with open(sys.argv[2], "w") as out:
+                    main(f, out)
+            else:
+                main(f, sys.stdout)
+    except Exception as e:
+        P.errmsg(P.ERR, e)

@@ -1,7 +1,32 @@
 #!/usr/bin/env python
 
 import sys
+import os.path
 import subprocess
+
+import utils
+
+def usage():
+    sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
+
+Usage: bamToWig.py [-dntwfp] [-o wigfile] bamfile
+
+Options: 
+ -o FILE  | Name of output file (default: stdout)
+ -w W     | Set window size to W (default: {})
+ -n N     | Normalize values by number of reads N
+ -s SCALE | Scale values by SCALE (y = r * SCALE / N)
+ -t S     | Set track title to S
+ -d D     | Set track description to D
+ -f       | Converts diff file to bedGraph (value column: 8)
+ -m       | Convert diff meth file to bedGraph (value column: 5)
+ -p       | Convert a Homer peaks.txt file to bedGraph
+
+""".format(trackdata.window))
+
+### Program object
+
+P = utils.Prog("bamToWig", version="1.0", usage=usage)
 
 class trackdata():
     outfile = None
@@ -154,8 +179,7 @@ def parseArgs(args, td):
     infile = None
     next = ""
 
-    if '-h' in args:
-        usage()
+    P.standardOpts(args)
     for a in args:
         if a == "-f":
             td.diff = True
@@ -164,16 +188,16 @@ def parseArgs(args, td):
         elif a == "-p":
             td.homer = True
         elif next == "-n":
-            td.normalize = int(a)
+            td.normalize = P.toInt(a)
             next = ""
         elif next == "-s":
-            td.scale = float(a)
+            td.scale = P.toFloat(a)
             next = ""
         elif next == "-o":
             td.outfile = a
             next = ""
         elif next == "-w":
-            td.window = int(a)
+            td.window = P.toInt(a)
             next = ""
         elif next == "-t":
             td.name = a
@@ -184,32 +208,14 @@ def parseArgs(args, td):
         elif a in ["-n", "-o", "-w", "-t", "-d", "-p", "-s"]:
             next = a
         else:
-            infile = a
+            infile = P.isFile(a)
     return infile
-
-def usage():
-    sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
-
-Usage: bamToWig.py [-dntwfp] [-o wigfile] bamfile
-
-Options: 
- -o FILE  | Name of output file (default: stdout)
- -w W     | Set window size to W (default: 100)
- -n N     | Normalize values by number of reads N
- -s SCALE | Scale values by SCALE (y = r * SCALE / N)
- -t S     | Set track title to S
- -d D     | Set track description to D
- -f       | Converts diff file to bedGraph (value column: 8)
- -m       | Convert diff meth file to bedGraph (value column: 5)
- -p       | Convert a Homer peaks.txt file to bedGraph
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    sys.exit(-1)
 
 def main(args):
     td = trackdata()
     infile = parseArgs(args, td)
+    if not infile:
+        P.errmsg(P.NOFILE)
     if td.diff:
         diffToBedGraph(infile, td)
     elif td.meth:
