@@ -6,7 +6,7 @@ import Script
 MAXL = 70
 
 def usage():
-    sys.stderr.write("""removeN.py - remove Ns from sequences in FASTA file
+    sys.stderr.write("""removeN.py - Remove Ns from sequences in FASTA file.
 
 Usage: removeN.py [-l len] infile [outfile]
 

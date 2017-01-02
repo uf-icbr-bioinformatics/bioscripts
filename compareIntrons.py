@@ -10,7 +10,7 @@ import Script
 
 def usage():
     progname = os.path.split(sys.argv[0])[1]
-    sys.stderr.write("""{} - analyze intron retention.
+    sys.stderr.write("""{} - Analyze intron retention.
 
 Usage: {} [options] intronsdb
 

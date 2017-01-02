@@ -26,6 +26,7 @@ Options:
 -na S      | string to use for missing data (default: NA)
 -names ... | comma-separated list of sample names (otherwise, use names
              of input files without extension)
+
 """)
 
 P = Script.Script("mergecols.py", version="1.0", usage=usage)

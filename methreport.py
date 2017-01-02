@@ -10,7 +10,7 @@ import Script
 # Script object
 
 def usage():
-    sys.stderr.write("""methreport.py - report methylation rate at CG and GC positions.
+    sys.stderr.write("""methreport.py - Report methylation rate at CG and GC positions.
 
 Usage: methreport.py [-gcg] infile [outfile]
 
@@ -104,7 +104,7 @@ def formatTabDelim(stream, l):
 
 def main():
     global EXCLGCG
-    infile = ""
+    infile = None
     outfile = ""
 
     # Parse arguments
@@ -117,6 +117,9 @@ def main():
             infile = P.isFile(arg)
         else:
             outfile = arg
+    
+    if not infile:
+        P.errmsg(P.NOFILE)
 
     nreads = 0
 

@@ -6,7 +6,7 @@ import pysam
 import Script
 
 def usage():
-    sys.stderr.write("""regionsCount.py - compute coverage in specified regions.
+    sys.stderr.write("""regionsCount.py - Compute coverage in specified regions.
 
 Usage: regionsCount.py [-z] [-q qual] [-o outfile] bamfile bedfile
 

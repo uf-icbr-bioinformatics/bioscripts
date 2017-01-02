@@ -11,7 +11,7 @@ import Script
 # Script class
 
 def usage():
-    sys.stderr.write("""methylfilter.py - separate sequences by average methylation.
+    sys.stderr.write("""methylfilter.py - Separate sequences by average methylation.
 
 Usage: methylfilter.py input.fa [options] outdesc ...
 

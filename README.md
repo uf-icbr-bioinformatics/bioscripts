@@ -2,8 +2,7 @@
 ## A collection of stand-alone scripts for bioinformatics.
 
 This repository contains a collection of scripts for various tasks in bioinformatics. 
-They were developed independently for use in various data analysis pipelines, but they
-can be used independently of each other.
+They were developed independently for use in various data analysis pipelines.
 
 ### Dependencies
 
@@ -46,16 +45,15 @@ description of their purpose.
 
 Name | Description
 -----|------------
-<tt>bamToWig.py</tt>   | 
-<tt>bisconv.py</tt>   | 
-<tt>chromCoverage.py</tt>   | 
-<tt>compareIntrons.py</tt>   | 
-<tt>countseqs.py</tt>   | 
-<tt>dmaptools.py</tt>   | 
-<tt>inserts.py</tt>   | 
-<tt>mergeCols.py</tt>   | 
-<tt>methreport.py</tt>   | 
-<tt>methylfilter.py</tt>   | 
-<tt>pileupToBED.py</tt>   | 
-<tt>regionsCount.py</tt>   | 
-<tt>removeN.py</tt>   | 
+<tt>bamToWig.py</tt>        | Convert BAM file to WIG track for the UCSC genome browser.
+<tt>bisconv.py</tt>         | Extract aligned reads from BAM file based on conversion strand.
+<tt>chromCoverage.py</tt>   | Report per-chromosome coverage.
+<tt>compareIntrons.py</tt>  | Analyze intron retention.
+<tt>countseqs.py</tt>       | Count sequences in fasta/fastq[.gz] files.
+<tt>dmaptools.py</tt>       | Merge methylation data.
+<tt>mergeCols.py</tt>       | Merge columns from multiple files.
+<tt>methreport.py</tt>      | Report methylation rate at CG and GC positions.
+<tt>methylfilter.py</tt>    | Separate sequences by average methylation.
+<tt>pileupToBED.py</tt>     | Convert a samtools pileup to a BED file.
+<tt>regionsCount.py</tt>    | Compute coverage from BAM file in specified regions.
+<tt>removeN.py</tt>         | Remove Ns from sequences in FASTA file.
