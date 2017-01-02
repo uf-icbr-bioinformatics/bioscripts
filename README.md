@@ -16,7 +16,7 @@ All scripts require the Script.py file, that should therefore be
 located in the same directory as the script you are executing. In
 addition: 
 
-* bisconv.py and regionscount.py require the pysam library;
+* <tt>bisconv.py</tt> and regionscount.py require the pysam library;
 * methreport.py and methylfilter.py require the SeqIO module from BioPython.
 
 ### Common arguments
