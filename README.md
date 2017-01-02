@@ -20,3 +20,13 @@ addition:
 * methreport.py and methylfilter.py require the SeqIO module from BioPython.
 
 ### Common arguments
+
+All scripts in *bioscripts* accept the following command-line
+arguments:
+
+Argument | Description
+-----------|------------
+-h, --help | Print usage message.
+-v, --version | Print version number.
+-E [n]        | Decode error code. If called with an error code **n**, prints the corresponding error message. If called without **n**, displays all error codes for this script with the associated error message.
+
