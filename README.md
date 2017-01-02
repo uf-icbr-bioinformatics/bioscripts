@@ -12,12 +12,12 @@ command-line programs in a Python 2.7 environment. If your Python
 executable is not in a standard location, please adjust the first line
 (starting with #!) accordingly.
 
-All scripts require the Script.py file, that should therefore be
+All scripts require the <tt>Script.py</tt> file, that should therefore be
 located in the same directory as the script you are executing. In
 addition: 
 
-* <tt>bisconv.py</tt> and regionscount.py require the pysam library;
-* methreport.py and methylfilter.py require the SeqIO module from BioPython.
+* <tt>bisconv.py</tt> and <tt>regionscount.py</tt> require the pysam library;
+* <tt>methreport.py</tt> and <tt>methylfilter.py</tt> require the SeqIO module from BioPython.
 
 ### Common arguments
 
@@ -31,7 +31,7 @@ Argument | Description
 -E [n]        | Decode error code. If called with an error code *n*, prints the corresponding error message. If called without *n*, displays all error codes for this script with the associated error message.
 
 The -E argument is designed for automated error handling in
-scripts. After calling a script (e.g. *prog.py*), check the return value (in the $?
+scripts. After calling a script (e.g. <tt>prog.py</tt>), check the return value (in the $?
 variable), and if it is not zero, print the corresponding error
 message with:
 
@@ -46,16 +46,16 @@ description of their purpose.
 
 Name | Description
 -----|------------
-bamToWig.py   | 
-bisconv.py   | 
-chromCoverage.py   | 
-compareIntrons.py   | 
-countseqs.py   | 
-dmaptools.py   | 
-inserts.py   | 
-mergeCols.py   | 
-methreport.py   | 
-methylfilter.py   | 
-pileupToBED.py   | 
-regionsCount.py   | 
-removeN.py   | 
+<tt>bamToWig.py</tt>   | 
+<tt>bisconv.py</tt>   | 
+<tt>chromCoverage.py</tt>   | 
+<tt>compareIntrons.py</tt>   | 
+<tt>countseqs.py</tt>   | 
+<tt>dmaptools.py</tt>   | 
+<tt>inserts.py</tt>   | 
+<tt>mergeCols.py</tt>   | 
+<tt>methreport.py</tt>   | 
+<tt>methylfilter.py</tt>   | 
+<tt>pileupToBED.py</tt>   | 
+<tt>regionsCount.py</tt>   | 
+<tt>removeN.py</tt>   | 
