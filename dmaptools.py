@@ -70,11 +70,41 @@ Write results to `outfile'."""
                         nwritten += 1
     sys.stderr.write("done, {} sites in output.\n".format(nwritten))
     return nwritten
-        
+
+### window-based DMR analysis:
+### Params:
+### window size
+### min number of sites in window
+### min coverage of each site in each sample
+### methylation rate difference
+### P-value
+### number of non-DMRs for merging
+### how to combine diffmeth in joined DMRs
+###
+### Output:
+### chrom  start  end  diffmeth
+###
+### Additional: 
+### average methylation level for each sample in each DMR
+
+### T-test to compare methylation rates in replicates (from mat files)
+### include methavg.py
+### in histogram: compare percent in each bin for replicates of each condition
+
+### in bedplotter: allow for larger window, using line graph instead of bar
+### multiple samples overlayed on single graph
+
+### check that mbed plotter works, generate figure 1A
+
+### Re-run pipeline for genediffmeth in more regions
+### Add links to mat files
+
 def usage():
     sys.stderr.write("""dmaptools.py - Merge methylation data.
 
-Usage: dmaptools.py mcompfile matfile1 matfile2 [outfile]
+Usage: dmaptools.py command arguments...
+
+where command is one of: merge, dmr, mcompfile matfile1 matfile2 [outfile]
 
 Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
 listed in `mcompfile', containing differentially-methylated C positions. Write
