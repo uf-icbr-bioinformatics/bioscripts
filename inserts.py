@@ -2,6 +2,13 @@
 
 import sys
 
+import Script
+
+def usage():
+    sys.stderr.write("TBW\n")
+
+P = Script.Script("inserts.py", version="1.0", usage=usage)
+
 class GTFregions():
     entries = {}
     currentChrom = ""
@@ -54,10 +61,6 @@ class GTFregions():
             elif r[0] <= pos <= r[1]:
                 return True
 
-def usage():
-    sys.stderr.write("TBW\n")
-    sys.exit(-1)
-
 class Params():
     maxsize = 1000
     outfile = None
@@ -66,21 +69,20 @@ class Params():
     gtfregions = None
 
     def __init__(self, args):
-        if '-h' in args:
-            usage()
+        P.standardOpts(args)
         next = ""
         for a in args:
             if next == '-o':
                 self.outfile = a
                 next = ""
             elif next == '-gtf':
-                self.gtffile = a
+                self.gtffile = P.isFile(a)
                 next = ""
             elif next == '-s':
-                self.maxsize = int(a)
+                self.maxsize = P.toInt(a)
                 next = ""
             elif next == '-r':
-                self.regsize = int(a)
+                self.regsize = P.toInt(a)
                 next = ""
             elif a in ['-o', '-gtf', '-s', '-r']:
                 next = a
@@ -89,10 +91,10 @@ class Params():
             G.parseGTF(self.gtffile)
             self.gtfregions = G
 
-def main(P):
+def main(PA):
     totlines = 0
-    data = [0]*P.maxsize
-    G = P.gtfregions
+    data = [0]*PA.maxsize
+    G = PA.gtfregions
 
     while True:
         line = sys.stdin.readline()
@@ -102,7 +104,7 @@ def main(P):
         fields = line.rstrip("\r\n").split("\t")
         if fields[6] == '=' and fields[8][0] != '-':
             c = int(fields[8])
-            if c < P.maxsize:
+            if c < PA.maxsize:
                 good = True
                 if G:
                     chrom = fields[2]
@@ -111,18 +113,18 @@ def main(P):
                 if good:
                     data[c] += 1
 
-    if P.outfile:
-        out = open(P.outfile, "w")
+    if PA.outfile:
+        out = open(PA.outfile, "w")
     else:
         out = sys.stdout
     try:
-        for i in range(P.maxsize):
+        for i in range(PA.maxsize):
             out.write("{}\t{}\t{}\n".format(i, data[i], 1.0*data[i]/totlines))
     finally:
-        if P.outfile:
+        if PA.outfile:
             out.close()
 
 if __name__ == "__main__":
-    P = Params(sys.argv[1:])
-    main(P)
+    PA = Params(sys.argv[1:])
+    main(PA)
 

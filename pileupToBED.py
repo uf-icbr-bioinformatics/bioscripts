@@ -2,6 +2,30 @@
 
 import sys
 
+import Script
+
+def usage():
+    sys.stderr.write("""pileupToBED.py - Convert a samtools pileup to a BED file.
+
+Usage: pileupToBED.py [options]
+
+Options:
+
+-i infile     | samtools pileup file (default: stdin)
+-o outfile    | Filename for output in tab-delimited format (default: stdout)
+-bf bedfile   | Filename for output in BED format
+-bn name      | Track name for BED file
+-r reportfile | Filename for by-chromosome report
+-g gap        | Set gap between regions (default: {})
+-s score      | Specify minimum score (default: {})
+-c cov        | Specify minimum coverage (default: {})
+
+""".format(PTB.maxGap, PTB.minScore, PTB.minCov))
+
+P = Script.Script("pileupToBED.py", version="1.0", usage=usage)
+
+# PTB Class
+
 class PTB():
     # Streams
     infile = None
@@ -31,12 +55,11 @@ class PTB():
     totUncovered = 0
 
     def init(self, args):
+        P.standardOpts(args)
         next = ""
         for a in args:
-            if a == '-h':
-                return self.usage()
-            elif next == '-i':
-                self.infile = a
+            if next == '-i':
+                self.infile = P.isFile(a)
                 next = ""
             elif next == '-o':
                 self.outfile = a
@@ -51,19 +74,16 @@ class PTB():
                 self.trackName = a
                 next = ""
             elif next == '-g':
-                self.maxGap = int(a)
+                self.maxGap = P.toInt(a)
                 next = ""
             elif next == '-s':
-                self.minScore = float(a)
+                self.minScore = P.toFloat(a)
                 next = ""
             elif next == '-c':
-                self.minCov = int(a)
+                self.minCov = P.toInt(a)
                 next = ""
             elif a in ['-i', '-o', '-r', '-bf', '-bn', '-g', '-s', '-c']:
                 next = a
-            else:
-                sys.stderr.write("Unknown option '{}'.\n".format(a))
-                return self.usage()
         if self.infile:
             self.instream = open(self.infile, "r")
         else:
@@ -78,26 +98,6 @@ class PTB():
             self.repstream = open(self.repfile, "w")
         else:
             self.repstream = sys.stderr
-
-    def usage(self):
-        sys.stderr.write("""pileupToBED.py - Convert a samtools pileup to a BED file.
-
-Usage: pileupToBED.py [options]
-
-Options:
-
--i infile     | samtools pileup file (default: stdin)
--o outfile    | Filename for output in tab-delimited format (default: stdout)
--bf bedfile   | Filename for output in BED format
--bn name      | Track name for BED file
--r reportfile | Filename for by-chromosome report
--g gap        | Set gap between regions (default: {})
--s score      | Specify minimum score (default: {})
--c cov        | Specify minimum coverage (default: {})
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""".format(self.maxGap, self.minScore, self.minCov))
-        sys.exit(-1)
 
     def close(self):
         if self.infile:
@@ -174,9 +174,9 @@ Options:
         self.newChrom(False, 0, 0) # To write final row in report
 
 if __name__ == "__main__":
-    P = PTB()
-    P.init(sys.argv[1:])
+    POBJ = PTB()
+    POBJ.init(sys.argv[1:])
     try:
-        P.main()
+        POBJ.main()
     finally:
-        P.close()
+        POBJ.close()

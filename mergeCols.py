@@ -4,6 +4,35 @@ import sys
 import os.path
 import gzip
 
+import Script
+
+def usage():
+    sys.stderr.write("""mergeCols.py - Merge columns from multiple files.
+
+Usage: mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] files...
+
+Combine gene data from multiple input files into a matrix. The program assumes that 
+each input files has one column containing identifiers (e.g. gene identifiers) and 
+one column containing a value associated to each identifier (e.g. FPKM). It will 
+output a tab-delimited file containing one row for each identifier, with the associated
+values from each input file in consecutive columns.
+
+Options:
+-o outfile | write matrix to `outfile' (default is standard output)
+-id N      | column containing gene identifiers (default: 1)
+-dc N      | column containing data (default: 2)
+-cuff      | sets options to retrieve FPKM from cufflinks files (-id 1 -dc 10)
+-rsem      | sets options to retrieve FPKM from RSEM files (-id 1 -dc 7)
+-na S      | string to use for missing data (default: NA)
+-names ... | comma-separated list of sample names (otherwise, use names
+             of input files without extension)
+
+""")
+
+P = Script.Script("mergecols.py", version="1.0", usage=usage)
+
+# Utils
+
 def isGzip(filename):
     (name, ext) = os.path.splitext(filename)
     return (ext == ".gz")
@@ -39,30 +68,6 @@ class Opts():
         sys.stderr.write(message)
         self.valid = False
 
-def usage():
-    sys.stderr.write("""mergeCols.py - Merge columns from multiple files.
-
-Usage: mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] files...
-
-Combine gene data from multiple input files into a matrix. The program assumes that 
-each input files has one column containing identifiers (e.g. gene identifiers) and 
-one column containing a value associated to each identifier (e.g. FPKM). It will 
-output a tab-delimited file containing one row for each identifier, with the associated
-values from each input file in consecutive columns.
-
-Options:
-
--o outfile | write matrix to `outfile' (default is standard output)
--id N      | column containing gene identifiers (default: 1)
--dc N      | column containing data (default: 2)
--cuff      | sets options to retrieve FPKM from cufflinks files (-id 1 -dc 10)
--rsem      | sets options to retrieve FPKM from RSEM files (-id 1 -dc 7)
--na S      | string to use for missing data (default: NA)
--names ... | comma-separated list of sample names (otherwise, use names
-             of input files without extension)
-""")
-    sys.exit(-1)
-
 def parseInt(s):
     try:
         x = int(s)
@@ -71,6 +76,7 @@ def parseInt(s):
         return None
 
 def parseArgs(args):
+    P.standardOpts(args)
     opts = Opts()
     next = ""
     for a in args:
@@ -78,14 +84,10 @@ def parseArgs(args):
             opts.outfile = a
             next = ""
         elif next == "-id":
-            opts.id = parseInt(a)
-            if opts.id == None:
-                opts.confError("Error: invalid value `{}' for -id argument.\n".format(a))
+            opts.id = P.toInt(a)
             next = ""
         elif next == "-dc":
-            opts.dc = parseInt(a)
-            if opts.dc == None:
-                opts.confError("Error: invalid value `{}' for -dc argument.\n".format(a))
+            opts.dc = P.toInt(a)
             next = ""
         elif next == "-names":
             opts.names = a.split(",")
@@ -101,10 +103,8 @@ def parseArgs(args):
         elif a == "-rsem":
             opts.id = 0
             opts.dc = 6
-        elif a == "-h":
-            usage()
         else:
-            opts.infiles.append(a)
+            opts.infiles.append(P.isFile(a))
     opts.nfiles = len(opts.infiles)
     if opts.nfiles == 0:
         opts.confError("Error: no input files specified.\n")
@@ -160,4 +160,4 @@ if __name__ == "__main__":
     if opts.valid:
         main(opts)
     else:
-        usage()
+        P.usage()

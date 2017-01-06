@@ -4,7 +4,7 @@ import sys
 import os.path
 import subprocess
 
-import utils
+import Script
 
 def usage():
     sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
@@ -26,7 +26,7 @@ Options:
 
 ### Program object
 
-P = utils.Prog("bamToWig", version="1.0", usage=usage)
+P = Script.Script("bamToWig", version="1.0", usage=usage)
 
 class trackdata():
     outfile = None
@@ -230,5 +230,6 @@ if __name__ == "__main__":
     if len(args) > 0:
         main(args)
     else:
-        usage();
+        P.errmsg(P.NOFILE)
+
 

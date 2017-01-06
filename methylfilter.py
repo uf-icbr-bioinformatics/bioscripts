@@ -6,6 +6,47 @@
 import sys
 from Bio import SeqIO
 
+import Script
+
+# Script class
+
+def usage():
+    sys.stderr.write("""methylfilter.py - Separate sequences by average methylation.
+
+Usage: methylfilter.py input.fa [options] outdesc ...
+
+The input file should be a fasta file in which the first sequence 
+is the reference. All other sequences are compared to the reference
+to determine % methylation.
+
+Each `outdesc' argument should be a string of the form:
+
+  min-max:filename
+
+where min and max should be expressed as percentages, ie integer numbers
+in the range 0..100. If min is omitted it defaults to 0. If max is omitted
+it defaults to 100. Each outdesc specifies that sequences with methylation
+values between min (inclusive) and max (exclusive) should be written to 
+filename. Any number of outdesc arguments can be used.
+
+Options:
+
+ -h, --help             | Write this usage message.
+ -v, --version          | Print version number.
+ -a, --addref           | Write reference sequence at the beginning of each 
+                          output file.
+ -r, --report filename  | Write to `filename' a report showing, for each input
+                          sequence, its % methylation and the output file it
+                          was written to.
+ -s, --summary filename | Write to `filename' a summary showing the number of
+                          sequences written to each output file.
+ -gcg                   | Do not exclude GCG sites from analysis.
+
+""")
+
+P = Script.Script("methylfilter.py", version="1.0", usage=usage, 
+                  errors=[('BADRANGE', 'Bad range specification', "Cannot parse argument `{}'. Format should be: low-high:filename.")])
+
 # Utility classes
 
 class refDesc():
@@ -66,9 +107,8 @@ class mfrun():
     def parseArgs(self, args):
         """Parse command-line arguments creating outfiles."""
 
+        P.standardOpts(args)
         prev = False
-        if '-h' in args:
-            usage()
         for arg in args:
             if prev == "r":
                 self.reportFile = arg
@@ -76,22 +116,21 @@ class mfrun():
             elif prev == "s":
                 self.summaryFile = arg
                 prev = False
-            elif (arg == "-addref") or (arg == "-a"):
+            elif (arg == "--addref") or (arg == "-a"):
                 self.writeRef = True
-            elif (arg == "-report") or (arg == "-r"):
+            elif (arg == "--report") or (arg == "-r"):
                 prev = "r"
-            elif (arg == "-summary") or (arg == "-s"):
+            elif (arg == "--summary") or (arg == "-s"):
                 prev = "s"
             elif (arg == "-gcg"):
                 self.excludeGCG = False
             elif self.infile == None:
-                self.infile = arg
+                self.infile = P.isFile(arg)
             else:
                 pdash = arg.find('-')
                 pcolon = arg.find(':', pdash)
                 if (pdash == -1) or (pcolon == -1):
-                    sys.stderr.write("Cannot parse argument `{}'. Format should be: low-high:filename.\n".format(arg))
-                    sys.exit(-2)
+                    P.errmsg(P.BADRANGE, arg)
                 else:
                     low = arg[0:pdash]
                     high = arg[pdash+1:pcolon]
@@ -274,40 +313,6 @@ def main():
     print "Report:"
     nwritten = run.showSummary()
     print "{} sequences written.".format(nwritten)
-
-def usage():
-    sys.stderr.write("""methylfilter.py - separate sequences by average methylation.
-
-Usage: methylfilter.py input.fa [options] outdesc ...
-
-The input file should be a fasta file in which the first sequence 
-is the reference. All other sequences are compared to the reference
-to determine % methylation.
-
-Each `outdesc' argument should be a string of the form:
-
-  min-max:filename
-
-where min and max should be expressed as percentages, ie integer numbers
-in the range 0..100. If min is omitted it defaults to 0. If max is omitted
-it defaults to 100. Each outdesc specifies that sequences with methylation
-values between min (inclusive) and max (exclusive) should be written to 
-filename. Any number of outdesc arguments can be used.
-
-Options:
-
- -a, -addref           | Write reference sequence at the beginning of each 
-                         output file.
- -r, -report filename  | Write to `filename' a report showing, for each input
-                         sequence, its % methylation and the output file it
-                         was written to.
- -s, -summary filename | Write to `filename' a summary showing the number of
-                         sequences written to each output file.
- -gcg                  | Do not exclude GCG sites from analysis.
-
-(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida
-""")
-    sys.exit(-1)
 
 if __name__ == "__main__":
     

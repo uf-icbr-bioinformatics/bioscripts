@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 import sys
-import utils
+import Script
 
 MAXL = 70
 
 def usage():
-    sys.stderr.write("""removeN.py - remove Ns from sequences in FASTA file
+    sys.stderr.write("""removeN.py - Remove Ns from sequences in FASTA file.
 
 Usage: removeN.py [-l len] infile [outfile]
 
@@ -22,7 +22,7 @@ Options:
 
 ### Program object
 
-P = utils.Prog("removeN", version="1.0", usage=usage)
+P = Script.Script("removeN", version="1.0", usage=usage)
 
 def main(instream, out):
     nout = 0
