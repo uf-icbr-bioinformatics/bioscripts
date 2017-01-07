@@ -501,6 +501,8 @@ class DMR():
                 self.bedfile1 = P.isFile(a)
             else:
                 self.bedfile2 = P.isFile(a)
+        if self.bedfile1 == None or self.bedfile2 == None:
+            P.errmsg(P.NOFILE)
 
     def isDMR(self, data1, data2):
         """data1 = test, data2 = control."""
