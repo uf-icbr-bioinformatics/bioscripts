@@ -51,13 +51,62 @@ Replicates2: (number of replicates in matfile2)
 MethRates2: (comma-separated average methylation value for each replicate in matfile2)
 Tstatistics: (T statistics from t-test)
 P-value: (P-value from t-test)
+Significant: (Y or N indicating if P-value < 0.01)
+""")
+    elif what == 'histmeth':
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py avgmeth matfile1 matfile2 [outfile]
+
+(more to come)
 
 """)
+    elif what == 'dmr':
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py dmr [options] testbed ctrlbed
+
+This command compares two BED files containing methylation rates for two different conditions, 
+(test and control respectively) and detects regions of differential methylation (DMRs). The 
+genome is divided into consecutive windows of `winsize' nucleotides. A window is identified as 
+a DMR if: it contains at least `minsites1' sites in the test dataset and `minsites2' sites in
+the control dataset having coverage higher than `mincov'; if the difference between the conversion
+rates in test and control is higher than `methdiff'; and if the P-value of this difference, 
+computed using Fisher's exact test, is smaller than `pval'.
+
+Consecutive DMRs will be joined if the are separated by not more than `gap' windows. Only DMRs 
+with a differential methylation in the same direction (ie, both positive or both negative) will
+be joined, unless the -a option is specified. When regions are joined, the differential methylation
+value is the average of those of the joined regions (or the average of their absolute values if
+-a was specified) and the P-value is the highest of those in the joined regions.
+
+Options:
+
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites1 | Minimum number of sites from test in DMR (default: {}).
+ -s minsites2 | Minimum number of sites from control in DMR (default: {}).
+ -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
+ -d methdiff  | Minimum difference of methylation rates (default: {}).
+ -p pval      | P-value threshold (default: {}).
+ -g gap       | Maximum gap for DMR joining (default: {}).
+ -a           | Allow joining of DMRs in different directions.
+
+""".format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
     else:
         P.usage()
 
 P = Script.Script("dmaptools.py", version="1.0", usage=usage,
                   errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, avgmeth, dmr.')])
+
+# Utils
+
+def readDelim(stream):
+    l = stream.readline().rstrip("\r\n")
+    if l == '':
+        return None
+    else:
+        return l.split("\t")
 
 # Merger
 
@@ -88,14 +137,13 @@ class Merger():
         hdr = []
         mmap = {}
         with open(self.matfile, "r") as f:
-            line = f.readline().rstrip("\r\n").split("\t")
+            line = readDelim(f)
             hdr = line[4:]
             p = f.tell()
             while True:
-                line = f.readline()
-                if line == '':
+                line = readDelim(f)
+                if line == None:
                     break
-                line = line.rstrip("\r\n").split("\t")
                 key = line[0] + ":" + line[1]
                 # print "{} -> {}".format(key, p)
                 # raw_input()
@@ -147,7 +195,7 @@ class Merger():
                             dl1 = m1.readline().rstrip("\r\n")
                             fp2 = map2[key]
                             m2.seek(fp2)
-                            dl2 = m2.readline().rstrip("\r\n").split("\t")
+                            dl2 = readDelim(m2)
                             out.write(dl1 + "\t" + "\t".join(dl2[2:]) + "\n")
                             nwritten += 1
         sys.stderr.write("done, {} sites in output.\n".format(nwritten))
@@ -179,7 +227,7 @@ class Averager():
             if a in ['-p']:
                 next = a
             elif next == '-p':
-                self.pval = P.isFloat(a)
+                self.pval = P.toFloat(a)
                 next = ""
             if self.matfile1 == None:
                 self.matfile1 = P.isFile(a)
@@ -192,7 +240,7 @@ class Averager():
         nrows = 0
         sys.stderr.write("Reading {}... ".format(filename))
         with open(filename, "r") as f:
-            hdr = f.readline().split("\t")
+            hdr = readDelim(f)
             nreps = len(hdr) - 4
             counts = [0]*nreps
             sums = [0]*nreps
@@ -288,7 +336,269 @@ class Histcomparer(Averager):
                 self.report(out, fracs1, fracs2)
         else:
             self.report(sys.stdout, fracs1, fracs2)
-                
+
+### DMR
+
+class BEDreader():
+    filename = None
+    stream   = None
+    current  = None
+    chrom    = ""
+    pos      = 0
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.stream = open(self.filename, "r")
+        self.readNext()
+
+    def close(self):
+        self.stream.close()
+
+    def readNext(self):
+        """Read one line from stream and store it in the `current' attribute. Also sets `chrom' 
+and `pos' to its first and second elements."""
+        if self.stream == None:
+            return None
+        data = readDelim(self.stream)
+        if data == None:
+            # print "File {} finished.".format(self.filename)
+            self.stream.close()
+            self.stream = None
+            return None
+        self.current = [int(data[4]), int(data[5])]
+        self.chrom = data[0]
+        self.pos   = int(data[1])
+    
+    def skipToChrom(self, chrom):
+        """Read lines until finding one that starts with `chrom'."""
+        # print "Skipping to chrom {} for {}".format(chrom, self.filename)
+        while self.chrom != chrom:
+            self.readNext()
+            if self.stream == None:
+                break
+
+    def readUntil(self, chrom, limit):
+        """Read lines until reaching one that is after `pos' or is on a different chromosome. Returns:
+- None if the BED file is finished,
+- The new chromosome, if different from chrom,
+- The list of records read otherwise.
+"""
+        result = []
+        if self.stream == None:
+            return None
+        if chrom != self.chrom:
+            return self.chrom
+        while True:
+            if self.pos < limit:
+                result.append(self.current)
+                self.readNext()
+                if self.stream == None:
+                    break
+                if chrom != self.chrom:
+                    break
+            else:
+                break
+        return result
+
+class DMRwriter():
+    out = None
+    maxdist = 0                 # Maximum distance between DMRs for joining
+    samedir = True              # If true, only DMRs in the same direction will be joined
+    chrom = ""
+    nd = 0
+    growing = []
+    
+    def __init__(self, out, maxdist, samedir=True):
+        self.out = out
+        self.maxdist = maxdist
+        self.samedir = samedir
+        self.growing = []
+        out.write("#Chrom\tStart\tEnd\tDiff\tPval\n")
+
+    def writeDMR(self):
+        """Write out the DMRs in `growing'."""
+        if self.nd == 0:
+            return
+        elif self.nd == 1:
+            self.out.write("{}\t{}\t{}\t{}\t{}\n".format(*self.growing[0]))
+        else:
+            totdiff = 0.0
+            maxpval = 0.0
+            for d in self.growing:
+                end = d[2]
+                if self.samedir:
+                    totdiff += d[3]
+                else:
+                    totdiff += abs(d[3])
+                maxpval = max(maxpval, d[4])
+            self.out.write("{}\t{}\t{}\t{}\t{}\n".format(self.growing[0][0], self.growing[0][1], end, totdiff/self.nd, maxpval))
+        self.growing = []
+        self.nd = 0
+
+    def finish(self):
+        self.writeDMR()
+
+    def addDMR(self, data):
+        if data[0] != self.chrom: # If chrom is different...
+            self.writeDMR()       # write current DMRs and start over
+            self.chrom = data[0]
+        elif self.nd == 0:
+            pass
+        elif (data[1] - self.growing[-1][2]) <= self.maxdist: # these can be joined...
+            if self.samedir and (data[3] * self.growing[-1][3]) < 0: # but not if they go in different directions and we want samedir
+                self.writeDMR()
+        else:
+            self.writeDMR()       # can't join, write current DMRs and start over
+        self.growing.append(data)
+        self.nd += 1
+
+class DMR():
+    winsize = 100
+    minsites1 = 0   # Minimum number of sites in test condition
+    minsites2 = 4   # Minimum number of sites in control condition
+    mincov = 4
+    methdiff = 0.2
+    pval = 0.01
+    gap = 0         # Maximum number of non-DMR regions that can be joined
+    samedir = True  # Only join DMRs in same direction?
+    bedfile1 = None # BED file for test condition
+    bedfile2 = None # BED file for control condition
+    outfile = None
+    growing = None              # buffer for DMRs that can potentially be joined
+
+    def __init__(self, args):
+        next = ""
+        for a in args:
+            if next == '-w':
+                self.winsize = P.toInt(a)
+                next = ""
+            elif next == '-s':
+                self.minsites2 = P.toInt(a)
+                next = ""
+            elif next == '-t':
+                self.minsites1 = P.toInt(a)
+                next = ""
+            elif next == '-c':
+                self.mincov = P.toInt(a)
+                next = ""
+            elif next == '-d':
+                self.methdiff = P.toFloat(a)
+                next = ""
+            elif next == '-p':
+                self.pval = P.toFloat(a)
+                next = ""
+            elif next == '-g':
+                self.gap = P.toInt(a)
+                next = ""
+            elif next == '-o':
+                self.outfile = a
+                next = ""
+            elif a in ['-w', '-s', '-t', '-c', '-d', '-p', '-o', '-g']:
+                next = a
+            elif a == '-a':
+                self.samedir = False
+            elif self.bedfile1 == None:
+                self.bedfile1 = P.isFile(a)
+            else:
+                self.bedfile2 = P.isFile(a)
+
+    def isDMR(self, data1, data2):
+        """data1 = test, data2 = control."""
+        ngood1 = 0
+        totC1 = 0
+        totT1 = 0
+        ngood2 = 0
+        totC2 = 0
+        totT2 = 0
+
+        for d in data1:
+            if d[0] >= self.mincov:
+                ngood1 += 1
+            totC1 += d[1]
+            totT1 += (d[0]-d[1])
+        for d in data2:
+            if d[0] >= self.mincov:
+                ngood2 += 1
+            totC2 += d[1]
+            totT2 += (d[0]-d[1])
+
+        # Do we have a sufficient number of sites?
+        if ngood1 < self.minsites1 or ngood2 < self.minsites2:
+            return None
+
+        # Compute methdiff ratio. Is it above our threshold?
+        ratio1 = 1.0 * totC1 / (totC1 + totT1)
+        ratio2 = 1.0 * totC2 / (totC2 + totT2)
+        diff = ratio1 - ratio2
+        if abs(diff) >= self.methdiff:
+            return None
+        #print (diff, [[totC1, totT1], [totC2, totT2]])
+
+        # Compute p-value
+        (odds, pval) = scipy.stats.fisher_exact([[totC1, totT1], [totC2, totT2]])
+        #print (odds, pval, diff, [[totC1, totT1], [totC2, totT2]])
+        if pval <= self.pval:
+            return (pval, diff)
+        else:
+            return None
+        
+    def findDMRs(self, out):
+        DW = DMRwriter(out, self.gap*self.winsize, samedir=self.samedir)
+        BR1 = BEDreader(self.bedfile1)
+        BR2 = BEDreader(self.bedfile2)
+        chrom = BR1.chrom       # assume that both BED file start with the same chrom - should check this!
+        
+        start = 0
+        end = self.winsize
+        nfound = 0
+        totfound = 0
+
+        while BR1.stream != None and BR2.stream != None:
+            data1 = BR1.readUntil(chrom, end)
+            data2 = BR2.readUntil(chrom, end)
+            
+            if isinstance(data1, basestring): # BR1 is at new chrom?
+                sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
+                BR2.skipToChrom(data1)        # BR2 should join it
+                totfound += nfound
+                nfound = 0
+                chrom = data1
+                start = 0
+                end = self.winsize
+
+            elif isinstance(data2, basestring): # BR2 is at new chrom?
+                sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
+                BR1.skipToChrom(data2)        # BR1 should join it
+                totfound += nfound
+                nfound = 0
+                chrom = data2
+                start = 0
+                end = self.winsize
+            
+            else:               # Both are lists, OK
+                if len(data1) > 0 and len(data2) > 0:
+                    result = self.isDMR(data1, data2)
+                    if result:
+                        nfound += 1
+                        (pval, diff) = result
+                        DW.addDMR([chrom, start, end, diff, pval])
+
+            # Move forward
+            start += self.winsize                                                    
+            end += self.winsize
+        sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
+        sys.stderr.write("Total: {} DMRs\n".format(totfound))
+        DW.finish()
+        # BR1.close()
+        # BR2.close()
+
+    def run(self):
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.findDMRs(out)
+        else:
+            self.findDMRs(sys.stdout)
+
 ### window-based DMR analysis:
 ### Params:
 ### window size
@@ -306,16 +616,16 @@ class Histcomparer(Averager):
 ### average methylation level for each sample in each DMR
 
 ### T-test to compare methylation rates in replicates (from mat files)
-### include methavg.py
-### in histogram: compare percent in each bin for replicates of each condition
+### include methavg.py - DONE
+### in histogram: compare percent in each bin for replicates of each condition - DONE
 
 ### in bedplotter: allow for larger window, using line graph instead of bar
 ### multiple samples overlayed on single graph
 
 ### check that mbed plotter works, generate figure 1A
 
-### Re-run pipeline for genediffmeth in more regions
-### Add links to mat files
+### Re-run pipeline for genediffmeth in more regions - DONE
+### Add links to mat files - DONE
 
 if __name__ == "__main__":
     args = sys.argv[1:]
@@ -336,6 +646,8 @@ if __name__ == "__main__":
     elif cmd == 'histmeth':
         M = Histcomparer(args[1:])
         M.run()
+    elif cmd == 'dmr':
+        M = DMR(args[1:])
+        M.run()
     else:
         P.usage()
-
