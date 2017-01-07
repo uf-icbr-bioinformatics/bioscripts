@@ -15,8 +15,9 @@ All scripts require the <tt>Script.py</tt> file, that should therefore be
 located in the same directory as the script you are executing. In
 addition: 
 
-* <tt>bisconv.py</tt> and <tt>regionscount.py</tt> require the pysam library;
-* <tt>methreport.py</tt> and <tt>methylfilter.py</tt> require the SeqIO module from BioPython.
+* <tt>bisconv.py</tt> and <tt>regionscount.py</tt> require the [pysam](https://pysam.readthedocs.io/en/latest/) library;
+* <tt>methreport.py</tt> and <tt>methylfilter.py</tt> require the SeqIO module from [BioPython](https://github.com/biopython/biopython.github.io/).
+* <tt>dmaptools.py</tt> requires [scipy](https://www.scipy.org/).
 
 ### Common arguments
 
