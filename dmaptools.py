@@ -13,10 +13,11 @@ def usage(what=None):
 
 Usage: dmaptools.py command arguments...
 
-where command is one of: merge, avgmeth, dmr
+where command is one of: merge, avgmeth, histmeth, dmr
 
 merge - report per-replicate methylation values at differentially methylated sites
 avgmeth - report and compare genome-wide methylation levels in two sets of replicates
+histmeth - compare % methylation rates in two sets of replicates
 dmr - detect differentially methylated regions
 
 Use `dmaptools.py -h command' to display usage for `command'.
@@ -170,9 +171,16 @@ class Averager():
     matfile2 = None
     nreps2 = 0
     outfile = None
+    pval = 0.01
 
     def __init__(self, args):
+        next = ""
         for a in args:
+            if a in ['-p']:
+                next = a
+            elif next == '-p':
+                self.pval = P.isFloat(a)
+                next = ""
             if self.matfile1 == None:
                 self.matfile1 = P.isFile(a)
             elif self.matfile2 == None:
@@ -213,6 +221,7 @@ class Averager():
         (tstat, pval) = scipy.stats.ttest_ind(avgs1, avgs2)
         out.write("Tstatistics: " + str(tstat) + "\n")
         out.write("P-value: " + str(pval) + "\n")
+        out.write("Significant: " + ("Y" if pval <= self.pval else "N") + "\n")
 
     def run(self):
         (nreps, avgs1) = self.methAvg(self.matfile1)
@@ -225,6 +234,61 @@ class Averager():
         else:
             self.report(sys.stdout, avgs1, avgs2)
 
+### Histcomparer
+### This command reads two -mat files and reports the fraction of sites in each bin of % methylation
+### for each replicate in the two conditions. It then determines whether the fractions are significantly
+### different in each bin.
+
+class Histcomparer(Averager):
+
+    def methHist(self, filename):
+        nrows = 0
+        sys.stderr.write("Reading {}... ".format(filename))
+        with open(filename, "r") as f:
+            hdr = f.readline().split("\t")
+            nreps = len(hdr) - 4
+            counts = [0]*nreps
+            hist = [ [0]*nreps for i in range(10) ]
+
+            for line in f:
+                nrows += 1
+                fields = line.split("\t")
+                for i in range(nreps):
+                    d = fields[i+4]
+                    if d != "NA":
+                        v = float(d)
+                        if v >= 0:
+                            bin = int(v*10)
+                            if bin == 10:
+                                bin = 9
+                            counts[i] += 1
+                            hist[bin][i] += 1
+        # print hist
+        # print counts
+        fracs = [ [ 1.0*hist[b][i] / counts[i] for i in range(nreps) ] for b in range(10) ]
+        sys.stderr.write("{} rows.\n".format(nrows))
+        return (nreps, fracs)
+
+    def report(self, out, fracs1, fracs2):
+        out.write("#Bin\tPval\tSignificant\tAvg1\tAvg2\n")
+        for b in range(10):
+            label = "{}-{}%".format(b*10, (b+1)*10)
+            row1 = fracs1[b]
+            row2 = fracs2[b]
+            (tstat, pval) = scipy.stats.ttest_ind(row1, row2)
+            out.write("\t".join([label, str(pval), ("Y" if pval <= self.pval else "N"), str(sum(row1) / self.nreps1), str(sum(row2) / self.nreps2)]) + "\n")
+
+    def run(self):
+        (nreps, fracs1) = self.methHist(self.matfile1)
+        self.nreps1 = nreps
+        (nreps, fracs2) = self.methHist(self.matfile2)
+        self.nreps2 = nreps
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.report(out, fracs1, fracs2)
+        else:
+            self.report(sys.stdout, fracs1, fracs2)
+                
 ### window-based DMR analysis:
 ### Params:
 ### window size
@@ -268,6 +332,9 @@ if __name__ == "__main__":
         M.run()
     elif cmd == 'avgmeth':
         M = Averager(args[1:])
+        M.run()
+    elif cmd == 'histmeth':
+        M = Histcomparer(args[1:])
         M.run()
     else:
         P.usage()
