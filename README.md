@@ -51,7 +51,7 @@ Name | Description
 <tt>chromCoverage.py</tt>   | Report per-chromosome coverage.
 <tt>compareIntrons.py</tt>  | Analyze intron retention.
 <tt>countseqs.py</tt>       | Count sequences in fasta/fastq[.gz] files.
-<tt>dmaptools.py</tt>       | Merge methylation data.
+<tt>dmaptools.py</tt>       | Utilities for methylation analysis.
 <tt>mergeCols.py</tt>       | Merge columns from multiple files.
 <tt>methreport.py</tt>      | Report methylation rate at CG and GC positions.
 <tt>methylfilter.py</tt>    | Separate sequences by average methylation.
