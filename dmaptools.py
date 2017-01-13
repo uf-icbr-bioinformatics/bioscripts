@@ -52,11 +52,12 @@ MethRates2: (comma-separated average methylation value for each replicate in mat
 Tstatistics: (T statistics from t-test)
 P-value: (P-value from t-test)
 Significant: (Y or N indicating if P-value < 0.01)
+
 """)
     elif what == 'histmeth':
         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-Usage: dmaptools.py avgmeth matfile1 matfile2 [outfile]
+Usage: dmaptools.py histmeth matfile1 matfile2 [outfile]
 
 (more to come)
 
@@ -92,7 +93,7 @@ Options:
  -g gap       | Maximum gap for DMR joining (default: {}).
  -a           | Allow joining of DMRs in different directions.
 
-""".format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
+""".format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
     else:
         P.usage()
 
@@ -255,9 +256,15 @@ class Averager():
                         if v >= 0:
                             counts[i] += 1
                             sums[i] += v
-        avgs = [ sums[i] / counts[i] for i in range(nreps) ]
+
+        goodreps = 0            # replicates for which we have data
+        avgs = []
+        for i in range(nreps):
+            if counts[i] > 0:
+                avgs.append(sums[i] / counts[i])
+                goodreps += 1
         sys.stderr.write("{} rows.\n".format(nrows))
-        return (nreps, avgs)
+        return (goodreps, avgs)
 
     def report(self, out, avgs1, avgs2):
         out.write("File1: " + self.matfile1 + "\n")
@@ -544,7 +551,7 @@ class DMR():
         else:
             return None
         
-    def findDMRs(self, out):
+    def findDMRs(self, out, avgout=None):
         DW = DMRwriter(out, self.gap*self.winsize, samedir=self.samedir)
         BR1 = BEDreader(self.bedfile1)
         BR2 = BEDreader(self.bedfile2)
@@ -584,7 +591,14 @@ class DMR():
                         nfound += 1
                         (pval, diff) = result
                         DW.addDMR([chrom, start, end, diff, pval])
-
+                if avgout:
+                    print data1
+                    print data2
+                    ratios1 = [ (1.0*v[1])/v[0] for v in data1 ]
+                    ratios2 = [ (1.0*v[1])/v[0] for v in data2 ]
+                    print ratios1
+                    print ratios2
+                    raw_input()
             # Move forward
             start += self.winsize                                                    
             end += self.winsize
