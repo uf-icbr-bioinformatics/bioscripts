@@ -13,7 +13,7 @@ def usage(what=None):
 
 Usage: dmaptools.py command arguments...
 
-where command is one of: merge, avgmeth, histmeth, dmr
+where command is one of: merge, avgmeth, histmeth, dmr, winavg, winmat
 
 merge - report per-replicate methylation values at differentially methylated sites
 avgmeth - report and compare genome-wide methylation levels in two sets of replicates
@@ -94,11 +94,67 @@ Options:
  -a           | Allow joining of DMRs in different directions.
 
 """.format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
+
+    elif what == 'winavg':
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py winavg [options] bedfile
+
+This command generates a BED file containing average metylation in consecutive windows from a BED
+file containing methylation rates. The input file `bedfile' should be in the format produced by
+mcall or cscall; in particular the first four columns should contain chromosome, start of site,
+end of site, site % methylation respectively. The output file will also have four columns: 
+chromosome, start of window, end of window, average % methylation in window.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites  | Minimum number of sites in window (default: {}).
+ -c mincov    | Minimum coverage of sites for -t (default: {}).
+
+""".format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
+
+    elif what == 'winmat':
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py winmat [options] matfile
+
+This command generates a BED file containing average metylation in consecutive windows from a -mat
+file.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites  | Minimum number of sites in window (default: {}).
+
+""".format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
+    
+    elif what == 'cmerge':
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py cmerge [options] files...
+
+This command merges columns from multiple input files into a single output file. The input files
+should have chromosome, start, and end position in the first three columns, and a value associated
+with each region in an additional column (the fourth one by default). For each region in the input
+files, the output file will contain chromosome, start, end, and the target columns from all input
+files in order.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -c targetcol | Specify column containing values to be merged (default: {}).
+ -x missing   | Value to use for missing elements (default: {}).
+
+""".format(CMERGE.targetcol, CMERGE.missing))
+
     else:
         P.usage()
 
 P = Script.Script("dmaptools.py", version="1.0", usage=usage,
-                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, avgmeth, dmr.')])
+                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, avgmeth, histmeth, dmr, winavg, cmerge.')])
 
 # Utils
 
@@ -121,23 +177,23 @@ class Merger():
         nfiles = 0
         for a in args:
             if nfiles == 0:
-                mcompfile = P.isFile(a)
+                self.mcompfile = P.isFile(a)
                 nfiles += 1
             elif nfiles == 1:
-                matfile1 = P.isFile(a)
+                self.matfile1 = P.isFile(a)
                 nfiles += 1
             elif nfiles == 2:
-                matfile2 = P.isFile(a)
+                self.matfile2 = P.isFile(a)
                 nfiles += 1
             elif nfiles == 3:
-                outfile = a
+                self.outfile = a
         if nfiles < 3:
             P.errmsg(P.NOFILE)
 
-    def makeMatMap(self):
+    def makeMatMap(self, matfile):
         hdr = []
         mmap = {}
-        with open(self.matfile, "r") as f:
+        with open(matfile, "r") as f:
             line = readDelim(f)
             hdr = line[4:]
             p = f.tell()
@@ -163,10 +219,10 @@ class Merger():
         map2 = {}
 
         sys.stderr.write("Indexing sites in `{}'... ".format(self.matfile1))
-        (hdr1, map1) = makeMatMap(self.matfile1)
+        (hdr1, map1) = self.makeMatMap(self.matfile1)
         sys.stderr.write("done, {} sites found.\n".format(len(map1)))
         sys.stderr.write("Indexing sites in `{}'... ".format(self.matfile2))
-        (hdr2, map2) = makeMatMap(self.matfile2)
+        (hdr2, map2) = self.makeMatMap(self.matfile2)
         sys.stderr.write("done, {} sites found.\n".format(len(map2)))
 
         nhdr1 = len(hdr1)
@@ -208,6 +264,88 @@ class Merger():
                 self.mergeMatFiles(out)
         else:
             self.mergeMatFiles(sys.stdout)
+
+### ColMerger
+
+class ColMergerRecord():
+    chrom = ""
+    start = 0
+    end = 0
+    data = []
+
+    def __init__(self, chrom, start, end, nsources, missing="NA"):
+        self.chrom = chrom
+        self.start = start
+        self.end = end
+        self.data = [missing]*nsources
+
+    def addValue(self, idx, value):
+        self.data[idx] = value
+
+class ColMerger():
+    filenames = []
+    nsources = 0                # Number of files we're reading from
+    target = 0                  # Column containing value to be merged
+    chroms = []                 # List of chromosomes seen
+    reclists = {}               # Dictionary of records seen (by chromosome)
+    missing = "NA"              # Value to use for missing data
+
+    def __init__(self, filenames, target):
+        self.filenames = filenames
+        self.colnames = [ self.cleanFilename(f) for f in filenames ]
+        self.nsources = len(filenames)
+        self.target = target
+        self.chroms = []
+        self.recids = []
+        self.records = {}
+
+    def cleanFilename(self, f):
+        """Move this somewhere else..."""
+        p = f.rfind("/")
+        if p > 0:
+            f = f[p+1:]
+        if f[-4:] == ".csv":
+            f = f[:-4]
+        return f
+
+    def parseSource(self, idx):
+        """Parse source number `idx'."""
+        sys.stderr.write("Parsing `{}'... ".format(self.filenames[idx]))
+        with open(self.filenames[idx], "r") as f:
+            for line in f:
+                if len(line) > 0 and line[0] != '#':
+                    parsed = line.rstrip("\r\n").split("\t")
+                    chrom = parsed[0]
+                    start = int(parsed[1])
+                    end   = int(parsed[2])
+                    val   = parsed[self.target]
+                    if chrom not in self.chroms:
+                        self.chroms.append(chrom)
+                    if chrom in self.records:
+                        chromlist = self.records[chrom]
+                    else:
+                        self.records[chrom] = chromlist = {}
+                    if start in chromlist:
+                        rec = chromlist[start]
+                    else:
+                        chromlist[start] = rec = ColMergerRecord(chrom, start, end, self.nsources, missing=self.missing)
+                    rec.addValue(idx, val)
+        sys.stderr.write("done.\n")
+
+    def parseAllSources(self):
+        for idx in range(self.nsources):
+            self.parseSource(idx)
+
+    def writeMerged(self, out):
+        out.write("#Chrom\tStart\tEnd\t" + "\t".join(self.colnames) + "\n")
+        for chrom in self.chroms:
+            chromlist = self.records[chrom]
+            for pos in sorted(chromlist.keys()):
+                rec = chromlist[pos]
+                out.write("{}\t{}\t{}".format(rec.chrom, rec.start, rec.end))
+                for v in rec.data:
+                    out.write("\t{}".format(v))
+                out.write("\n")
 
 ### Averager
 ### This command reads two -mat files and computes the average methylation of each
@@ -407,6 +545,32 @@ and `pos' to its first and second elements."""
                 break
         return result
 
+class MATreader(BEDreader):
+    hdr = None
+    nreps = 0
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.stream = open(self.filename, "r")
+        self.hdr = readDelim(self.stream)
+        self.nreps = len(self.hdr)-4
+        self.readNext()
+
+    def readNext(self):
+        """Read one line from stream and store it in the `current' attribute. Also sets `chrom' 
+and `pos' to its first and second elements."""
+        if self.stream == None:
+            return None
+        data = readDelim(self.stream)
+        if data == None:
+            # print "File {} finished.".format(self.filename)
+            self.stream.close()
+            self.stream = None
+            return None
+        self.current = data[4:]
+        self.chrom = data[0]
+        self.pos   = int(data[1])
+
 class DMRwriter():
     out = None
     maxdist = 0                 # Maximum distance between DMRs for joining
@@ -539,7 +703,7 @@ class DMR():
         ratio1 = 1.0 * totC1 / (totC1 + totT1)
         ratio2 = 1.0 * totC2 / (totC2 + totT2)
         diff = ratio1 - ratio2
-        if abs(diff) >= self.methdiff:
+        if abs(diff) < self.methdiff:
             return None
         #print (diff, [[totC1, totT1], [totC2, totT2]])
 
@@ -591,14 +755,14 @@ class DMR():
                         nfound += 1
                         (pval, diff) = result
                         DW.addDMR([chrom, start, end, diff, pval])
-                if avgout:
-                    print data1
-                    print data2
-                    ratios1 = [ (1.0*v[1])/v[0] for v in data1 ]
-                    ratios2 = [ (1.0*v[1])/v[0] for v in data2 ]
-                    print ratios1
-                    print ratios2
-                    raw_input()
+                    if avgout:
+                        print data1
+                        print data2
+                        ratios1 = [ (1.0*v[1])/v[0] for v in data1 ]
+                        ratios2 = [ (1.0*v[1])/v[0] for v in data2 ]
+                        print ratios1
+                        print ratios2
+                        raw_input()
             # Move forward
             start += self.winsize                                                    
             end += self.winsize
@@ -614,6 +778,199 @@ class DMR():
                 self.findDMRs(out)
         else:
             self.findDMRs(sys.stdout)
+
+### WINAVG
+
+class WINAVG():
+    winsize = 100
+    minsites = 0   # Minimum number of sites in window
+    mincov = 4     # Minimum coverage of sites counted
+    bedfile = None # Input file
+    outfile = None # Output file
+
+    def __init__(self, args):
+        next = ""
+        for a in args:
+            if next == '-w':
+                self.winsize = P.toInt(a)
+                next = ""
+            elif next == '-t':
+                self.minsites = P.toInt(a)
+                next = ""
+            elif next == '-c':
+                self.mincov = P.toInt(a)
+                next = ""
+            elif next == '-o':
+                self.outfile = a
+                next = ""
+            elif a in ['-w', '-t', '-c', '-o']:
+                next = a
+            elif self.bedfile == None:
+                self.bedfile = P.isFile(a)
+        if self.bedfile == None:
+            P.errmsg(P.NOFILE)
+
+    def getAvg(self, data):
+        ngood = 0
+        totCov = 0
+        totC = 0
+
+        for d in data:
+            if d[0] >= self.mincov:
+                ngood += 1
+                totCov += d[0]
+                totC += d[1]
+        if ngood >= self.minsites:
+            return 1.0*totC/totCov
+        else:
+            return False
+
+    def winAvg(self, out):
+        BR = BEDreader(self.bedfile)
+        chrom = BR.chrom
+        start = 0
+        end = self.winsize
+        nwins = 0
+        totwins = 0
+
+        while BR.stream != None:
+            data = BR.readUntil(chrom, end)
+            if isinstance(data, basestring): # New chrom?
+                sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
+                totwins += nwins
+                nwins = 0
+                chrom = data
+                start = 0
+                end = self.winsize
+            else:
+                if len(data) > 0:
+                    avg = self.getAvg(data)
+                    if avg:
+                        out.write("{}\t{}\t{}\t{}\n".format(chrom, start, end, avg))
+                        nwins += 1
+                start += self.winsize
+                end += self.winsize
+        sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
+        sys.stderr.write("Total: {} windows\n".format(totwins))
+
+    def run(self):
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.winAvg(out)
+        else:
+            self.winAvg(sys.stdout)
+
+### WINMAT
+
+class WINMAT():
+    winsize = 100
+    minsites = 0   # Minimum number of sites in window
+    matfile = None # Input file
+    outfile = None # Output file
+
+    def __init__(self, args):
+        next = ""
+        for a in args:
+            if next == '-w':
+                self.winsize = P.toInt(a)
+                next = ""
+            elif next == '-t':
+                self.minsites = P.toInt(a)
+                next = ""
+            elif next == '-o':
+                self.outfile = a
+                next = ""
+            elif a in ['-w', '-t', '-o']:
+                next = a
+            elif self.matfile == None:
+                self.matfile = P.isFile(a)
+        if self.matfile == None:
+            P.errmsg(P.NOFILE)
+
+    def winMat(self, out):
+        BR = MATreader(self.matfile)
+        chrom = BR.chrom
+        start = 0
+        end = self.winsize
+        nwins = 0
+        totwins = 0
+
+        out.write("#Chrom\tStart\tEnd\t" + "\t".join(BR.hdr[4:]) + "\n")
+        while BR.stream != None:
+            data = BR.readUntil(chrom, end)
+            if isinstance(data, basestring): # New chrom?
+                sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
+                totwins += nwins
+                nwins = 0
+                chrom = data
+                start = 0
+                end = self.winsize
+            else:
+                nd = len(data)
+                if nd > 0:
+                    sums = [0]*BR.nreps
+                    cnts = [0]*BR.nreps
+                    for d in data:
+                        for i in range(BR.nreps):
+                            v = d[i]
+                            if v != 'NA':
+                                v = float(v)
+                                if v > 0:
+                                    sums[i] += float(d[i])
+                                    cnts[i] += 1
+                    avgs = [ str(sums[i]/cnts[i] if cnts[i] > 0 else 0) for i in range(BR.nreps) ]
+                    out.write("{}\t{}\t{}\t{}\n".format(chrom, start, end, "\t".join(avgs)))
+                    nwins += 1
+                start += self.winsize
+                end += self.winsize
+        sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
+        sys.stderr.write("Total: {} windows\n".format(totwins))
+
+    def run(self):
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.winMat(out)
+        else:
+            self.winMat(sys.stdout)
+
+### CMERGE
+
+class CMERGE():
+    colmerger = None
+    filenames = []
+    targetcol = 3
+    outfile = None
+    missing = "NA"
+                         
+    def __init__(self, args):
+        self.filenames = []
+        next = ""
+        for a in args:
+            if next == '-c':
+                self.targetcol = P.toInt(a) + 1
+                next = ""
+            elif next == '-o':
+                self.outfile = a
+                next = ""
+            elif next == '-x':
+                self.missing = a
+                next = ""
+            elif a in ['-c', '-o', '-x']:
+                next = a
+            else:
+                self.filenames.append(P.isFile(a))
+        if len(self.filenames) == 0:
+            P.errmsg(P.NOFILE)
+
+    def run(self):
+        self.colmerger = ColMerger(self.filenames, self.targetcol)
+        self.colmerger.parseAllSources()
+        if self.outfile:
+            sys.stderr.write("Writing merged file to {}\n".format(self.outfile))
+            with open(self.outfile, "w") as out:
+                self.colmerger.writeMerged(out)
+        else:
+            self.colmerger.writeMerged(sys.stdout)
 
 ### window-based DMR analysis:
 ### Params:
@@ -664,6 +1021,15 @@ if __name__ == "__main__":
         M.run()
     elif cmd == 'dmr':
         M = DMR(args[1:])
+        M.run()
+    elif cmd == 'winavg':
+        M = WINAVG(args[1:])
+        M.run()
+    elif cmd == 'winmat':
+        M = WINMAT(args[1:])
+        M.run()
+    elif cmd == 'cmerge':
+        M = CMERGE(args[1:])
         M.run()
     else:
         P.usage()

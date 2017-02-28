@@ -5,8 +5,10 @@ import os
 import os.path
 import gzip
 import time
+import pysam
 import string
 import random
+import subprocess
 
 def dget(key, dictionary, default=None):
     """Return the value associated with `key' in `dictionary', if present, or `default'."""
@@ -23,9 +25,9 @@ def dinc(key, dictionary, default=0):
         dictionary[key] = default + 1
     return dictionary[key]
 
-def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+def id_generator(size=6, chars=string.ascii_uppercase + string.digits, prefix=''):
     """From: http://stackoverflow.com/questions/2257441/random-string-generation-with-upper-case-letters-and-digits-in-python"""
-    return ''.join(random.choice(chars) for _ in range(size))
+    return prefix + ''.join(random.choice(chars) for _ in range(size))
 
 def safeInt(v, default=None):
     try:
@@ -249,3 +251,185 @@ def extractExpressions(sigfile, exprfile, outfile, sigidcol=0, sigfccol=1, idcol
                 if parsed[0] in wanted:
                     out.write(parsed[idcol] + "\t" + "\t".join(parsed[datacol:]) + "\n")
 
+### BAM utilities
+
+def countReadsInBAM(filename):
+    stats = pysam.idxstats(filename)
+    nreads = 0
+    for row in stats:
+        row.rstrip("\r\n")
+        fields = row.split("\t")
+        if len(fields) > 2 and fields[0] != '*':
+            nreads += int(fields[2])
+    return nreads
+
+def getChromsFromBAM(filename):
+    chroms = []
+    stats = pysam.idxstats(filename)
+    for row in stats.split("\n"):
+        fields = row.split("\t")
+        if fields[0] != '*' and fields[0] != '':
+            chroms.append(fields[0])
+    return chroms
+
+### Hub generator
+
+class UCSCHub():
+    genome = "hg38"
+    name = "Hub"
+    shortLabel = "testHub"
+    longLabel = "A test UCSC hub"
+    email = "ariva@ufl.edu"
+    sizes = ""                  # Required by wigToBigWig, etc
+
+    # These should not need to be changed
+    dirname = "hub"             # Name of directory containing hub
+    genomesFile = "genomes.txt"
+    trackFile = "trackDb.txt"
+    ucscpath = "/apps/dibig_tools/1.0/lib/ucsc/"
+    parent = ""                 # If defined, we're in a container
+
+    def __init__(self, name, shortLabel, longLabel, genome=None, sizes=None, dirname=None, genomesFile=None, trackFile=None, email=None):
+        self.name = name
+        self.shortLabel = shortLabel
+        self.longLabel = longLabel
+        if genome:
+            self.genome = genome
+        if dirname:
+            self.dirname = dirname
+        if trackFile:
+            self.trackFile = trackFile
+        if genomesFile:
+            self.genomesFile = genomesFile
+        if email:
+            self.email = email
+        if sizes:
+            self.sizes = sizes
+        else:
+            self.sizes = self.ucscpath + "/" + self.genome + ".chrom.sizes"
+
+    def mkdir(self, name):
+        if not os.path.exists(name):
+            os.mkdir(name)
+
+    def missingOrStale(self, target, source):
+        """Return True if `target' is missing or is older than `source'."""
+        if os.path.isfile(target):
+            if source and os.path.isfile(source):
+                this = os.path.getmtime(target)
+                that = os.path.getmtime(source)
+                return (this < that)
+            else:
+                return False
+        else:
+            return True
+
+    def shell(self, command, *args):
+        """Like executef(), but allows multiple commands, redirection, piping, etc (runs a subshell).
+Returns the command's output without the trailing \n."""
+        cmd = command.format(*args)
+        print "Executing: " + cmd
+        try:
+            return subprocess.check_output(cmd, shell=True).rstrip("\n")
+        except subprocess.CalledProcessError as cpe:
+            return cpe.output.rstrip("\n")
+
+    def getBasename(self, path):
+        return os.path.splitext(os.path.basename(path))[0]
+
+    def generate(self):
+        path = self.dirname + "/"                                  # hub/
+        self.mkdir(path)
+        self.mkdir(path + self.genome)                             # hub/hg38
+        self.trackDbPath = self.genome + "/" + self.trackFile      # hg38/trackDb.txt
+
+        # Write genomes file
+        with open(path + self.genomesFile, "w") as out:            # hub/genomes.txt
+            out.write("""genome {}
+trackDb {}
+""".format(self.genome, self.trackDbPath))
+
+        # Write hub file
+        with open(path + "hub.txt", "w") as out:                   # hub/hub.txt
+            out.write("""hub {}
+shortLabel {}
+longLabel {}
+genomesFile {}
+email {}
+""".format(self.name, self.shortLabel, self.longLabel, self.genomesFile, self.email))
+
+        # Write trackDb file
+        self.trackDbPath = path + self.trackDbPath
+        with open(self.trackDbPath, "w") as out:                   # hub/hg38/trackDb.txt
+            out.write("""# TrackDB for {} hub\n\n""".format(self.name))
+
+    def writeStanza(self, out, base, options={}):
+        out.write(base)
+        for key, value in options.iteritems():
+            out.write("{} {}\n".format(key, value))
+        out.write("\n")
+
+    def addWig(self, filename, name, shortLabel, longLabel, **options):
+        bname = self.getBasename(filename)
+        bw = bname + ".bw"
+        bwpath = self.dirname + "/" + self.genome + "/" + bw
+        if self.missingOrStale(bwpath, filename):
+            self.shell("{}/wigToBigWig -clip {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
+
+        with open(self.trackDbPath, "a") as out:
+            self.writeStanza(out, """track {}
+{}bigDataUrl {}
+shortLabel {}
+longLabel {}
+type bigWig
+autoScale on
+""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)), options=options)
+
+    def addBedGraph(self, filename, name, shortLabel, longLabel):
+        bname = self.getBasename(filename)
+        bw = bname + ".bw"
+        bwpath = self.dirname + "/" + self.genome + "/" + bw
+        if self.missingOrStale(bwpath, filename):
+            self.shell("{}/bedGraphToBigWig {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
+
+        with open(self.trackDbPath, "a") as out:
+            out.write("""track {}
+{}bigDataUrl {}
+shortLabel {}
+longLabel {}
+type bigWig
+autoScale on
+
+""".format(name, self.parent, bw, shortLabel, longLabel))
+
+    def addBed(self, filename, name, shortLabel, longLabel):
+        bname = self.getBasename(filename)
+        bw = bname + ".bw"
+        bwpath = self.dirname + "/" + self.genome + "/" + bw
+        if self.missingOrStale(bwpath, filename):
+            self.shell("{}/bedToBigBed -clip {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
+
+        with open(self.trackDbPath, "a") as out:
+            out.write("""track {}
+{}bigDataUrl {}
+shortLabel {}
+longLabel {}
+type bigWig
+autoScale on
+
+""".format(name, self.parent, bw, shortLabel, longLabel))
+
+    def startContainer(self, name, shortLabel, longLabel, tracktype):
+        with open(self.trackDbPath, "a") as out:
+            out.write("""track {}
+compositeTrack on
+longLabel {}
+shortLabel {}
+type {}
+allButtonPair on
+
+""".format(name, longLabel, shortLabel, tracktype))
+        self.parent = "parent {} on\n".format(name)
+
+    def endContainer(self):
+        self.parent = ""

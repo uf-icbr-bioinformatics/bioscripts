@@ -57,7 +57,8 @@ labels into two single files. Options:
 where command is one of:
 
 matrix - combine multiple .genes.results or .isoforms.results into a single data matrix
-merge  - merge multiple .gfdr.csv or .ifdr.csv into a single matrix
+merge  - merge multiple .gfdr.csv or .ifdr.csv files into a single matrix
+allexp - merge multiple .gmatrix.csv files into a single matrix
 
 Call with command and no arguments to get help about a specific command.
 
@@ -191,7 +192,7 @@ for genes/transcripts and ERCC controls are stored separately."""
         """Write the full (normalized) data matrix to stdout."""
         sys.stdout.write("\t" + "\t".join([ '"' + f + '"' for f in self.infiles]) + "\n")
         for r in self.rows:
-           sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
+            sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
 
     def ERCCnormalize(self):
         ew("Performing ERCC normalization. Mixes:\n")
@@ -382,6 +383,60 @@ the identifier in the first column is in the set `ids'."""
     def run(self):
         self.merge()
 
+### ExpMerger
+
+class ExpMerger():
+    filenames = []
+    labels = []
+    table = {}
+    outfile = None
+
+    def __init__(self):
+        self.filenames = []
+        self.labels = []
+        self.table = {}
+
+    def readOneFile(self, filename):
+        sys.stderr.write("Reading {}... ".format(filename))
+        with open(filename, "r") as f:
+            hdr = Utils.parseLine(f.readline())
+            hdr = [ h.strip('"') for h in hdr ]
+            ncols = len(hdr)
+            for h in hdr[1:]:
+                if h not in self.labels:
+                    self.labels.append(h)
+            for line in f:
+                fields = Utils.parseLine(line)
+                g = fields[0]
+                if g in self.table:
+                    gdata = self.table[g]
+                else:
+                    gdata = {}
+                    self.table[g] = gdata
+                for i in range(1, ncols):
+                    gdata[hdr[i]] = fields[i]
+        sys.stderr.write("done.\n")
+
+    def writeAllExp(self, out):
+        out.write("#Gene\t" + "\t".join(self.labels) + "\n")
+        for g, gdata in self.table.iteritems():
+            out.write(g)
+            for l in self.labels:
+                out.write("\t")
+                out.write(gdata[l])
+            out.write("\n")
+
+    def run(self):
+        for f in self.filenames:
+            self.readOneFile(f)
+        sys.stderr.write("{} genes, {} labels.\n".format(len(self.table), len(self.labels)))
+        if self.outfile:
+            sys.stderr.write("Writing results to {}\n".format(self.outfile))
+            with open(self.outfile, "w") as out:
+                self.writeAllExp(out)
+        else:
+            self.writeAllExp(sys.stdout)
+
 def parseArgs(cmd, args):
     if cmd == 'matrix':
         P = MatrixGenerator()
@@ -436,6 +491,21 @@ def parseArgs(cmd, args):
         else:
             P.setLabels(labels)
             return P
+    elif cmd == 'allexp':
+        P = ExpMerger()
+        filenames = []
+        next = ""
+        for a in args:
+            if next == '-o':
+                P.outfile = a
+                next = ""
+            elif a == '-o':
+                next = a
+            else:
+                filenames.append(S.isFile(a))
+        P.filenames = filenames
+        return P
+
     else:
         return usage()
 
@@ -447,7 +517,7 @@ if __name__ == "__main__":
 
     S.standardOpts(args)
 
-    cmd  = args[0]
+    cmd = args[0]
     arglist = args[1:]
     P = parseArgs(cmd, arglist)
     if P:

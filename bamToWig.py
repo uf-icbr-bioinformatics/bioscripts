@@ -18,6 +18,7 @@ Options:
  -s SCALE | Scale values by SCALE (y = r * SCALE / N)
  -t S     | Set track title to S
  -d D     | Set track description to D
+ -e       | Do not remove ERCC controls
  -f       | Converts diff file to bedGraph (value column: 8)
  -m       | Convert diff meth file to bedGraph (value column: 5)
  -p       | Convert a Homer peaks.txt file to bedGraph
@@ -38,6 +39,7 @@ class trackdata():
     diff = False
     meth = False
     homer = False
+    ercc = False                # If True, preserve ERCC reads
 
     def trackHeader(self):
         if self.diff or self.homer:
@@ -54,6 +56,7 @@ class trackdata():
         return "fixedStep chrom={} start={} step={} span={}\n".format(chrom, pos, self.window, self.window)
 
 def bamToWig(bamfile, trackdata):
+    wanted = True
     currChrom = ""
     windowstart = 0
     windowend = 0
@@ -86,14 +89,18 @@ def bamToWig(bamfile, trackdata):
                 if currChrom != "":
                     out.write("{}\n".format((1.0 * windowsum / window) * f))
                 currChrom = chrom
+                wanted = (not chrom.startswith("ERCC") or trackdata.ercc)
                 windowstart = pos
                 windowend = windowstart + window
                 windowsum = dp
-                out.write(trackdata.trackFirstLine(chrom, pos))
-            if pos > windowend:
-                out.write("{}\n".format((1.0 * windowsum / window) * f))
-                if pos > windowend + window: # gap - need to start a new track
+                if wanted:
                     out.write(trackdata.trackFirstLine(chrom, pos))
+            if pos > windowend:
+                if wanted: 
+                    out.write("{}\n".format((1.0 * windowsum / window) * f))
+                if pos > windowend + window: # gap - need to start a new track
+                    if wanted:
+                        out.write(trackdata.trackFirstLine(chrom, pos))
                     windowstart = pos
                     windowend = windowstart + window
                     windowsum = dp
@@ -187,6 +194,8 @@ def parseArgs(args, td):
             td.meth = True
         elif a == "-p":
             td.homer = True
+        elif a == "-e":
+            td.ercc = True
         elif next == "-n":
             td.normalize = P.toInt(a)
             next = ""
