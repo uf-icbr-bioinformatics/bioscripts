@@ -3,11 +3,27 @@
 import sys
 import csv
 import sqlite3 as sql
+import Utils
 import Script
 
 def usage():
-    sys.stderr.write("""to be written
-""")
+    sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py [options] command command-arguments...
+
+where `command' can be one of:
+  classify chrom:position - Classify the specified chromosome position according to 
+                            the transcripts it falls in.
+  region geneid           - Display the region for the gene identified by `geneid'.
+  transcripts geneid      - Display the transcripts for the gene identified by `geneid'.
+
+Options:
+
+  -db D  | Load gene database from sqlite3 file D
+  -gff G | Load gene database from GFF file G
+  -d N   | Upstream/downstream distance from gene for classification (default: {})
+
+""".format(Prog.distance))
 
 ### Program object
 
@@ -46,15 +62,6 @@ class Prog(Script.Script):
 P = Prog("genes.py", version="1.0", usage=usage, errors=[('BADSRC', 'Missing gene database')])
 
 # Utils
-
-def f2dd(x):
-    return "{:.2f}".format(x)
-
-def dget(key, dict, default=None):
-    if key in dict:
-        return dict[key]
-    else:
-        return default
 
 def parseRegion(c):
     """Parse a region specification of the form chr:start-end and return a
@@ -292,7 +299,7 @@ class Genelist():
                     allint = self.allIntersecting(parsed[0], int(parsed[1]), int(parsed[2]))
                     for a in allint:
                         g = a[0]
-                        out.write("\t".join(parsed + [g.name, g.biotype, a[1], f2dd(a[2]*100), f2dd(a[3]*100)]) + "\n")
+                        out.write("\t".join(parsed + [g.name, g.biotype, a[1], Utils.f2dd(a[2]*100), Utils.f2dd(a[3]*100)]) + "\n")
 
     def notIntersectFromBED(self, bedfile, outfile):
         with open(outfile, "w") as out:
@@ -804,7 +811,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     gt.txend   = int(line[4])
                     ann = parseAnnotations(line[8])
                     gt.mrna = ann['transcript_id']
-                    gt.txname = dget('transcript_name', ann)
+                    gt.txname = Utils.dget('transcript_name', ann)
                     genes.add(gt, gt.chrom)
                 elif btype == 'CDS':
                     start = int(line[3])
@@ -865,19 +872,19 @@ class GFFloader(GeneLoader):
 
                 if tag in ['gene', 'miRNA_gene', 'lincRNA_gene']:
                     ann   = self.parseAnnotations(line[8])
-                    gid   = self.cleanID(dget('ID', ann))
+                    gid   = self.cleanID(Utils.dget('ID', ann))
                     self.currGene = Gene(gid, chrom, strand)
-                    self.currGene.name = dget('Name', ann, "")
-                    self.currGene.biotype = dget('biotype', ann)
+                    self.currGene.name = Utils.dget('Name', ann, "")
+                    self.currGene.biotype = Utils.dget('biotype', ann)
                     self.gl.add(self.currGene, chrom)
                     
                 elif tag in ['mRNA', 'transcript', 'processed_transcript', 'pseudogenic_transcript', 'pseudogene', 'processed_pseudogene', 'miRNA', 'lincRNA']:
                     ann = self.parseAnnotations(line[8])
-                    tid = self.cleanID(dget('ID', ann))
-                    pid = self.cleanID(dget('Parent', ann))
+                    tid = self.cleanID(Utils.dget('ID', ann))
+                    pid = self.cleanID(Utils.dget('Parent', ann))
                     self.currTranscript = Transcript(tid, chrom, strand, int(line[3]), int(line[4]))
-                    self.currTranscript.name = dget('Name', ann, "")
-                    self.currTranscript.biotype = dget('biotype', ann)
+                    self.currTranscript.name = Utils.dget('Name', ann, "")
+                    self.currTranscript.biotype = Utils.dget('biotype', ann)
                     self.currTranscript.exons = [] # Exons come later in the file
                     if pid == self.currGene.ID:
                         self.currGene.addTranscript(self.currTranscript)
@@ -886,7 +893,7 @@ class GFFloader(GeneLoader):
 
                 elif tag == 'exon':
                     ann = self.parseAnnotations(line[8])
-                    pid = self.cleanID(dget('Parent', ann))
+                    pid = self.cleanID(Utils.dget('Parent', ann))
                     if pid == self.currTranscript.ID:
                         start = int(line[3])
                         end   = int(line[4])
@@ -896,7 +903,7 @@ class GFFloader(GeneLoader):
 
                 elif tag == 'CDS':
                     ann = self.parseAnnotations(line[8])
-                    pid = self.cleanID(dget('Parent', ann))
+                    pid = self.cleanID(Utils.dget('Parent', ann))
                     if pid == self.currTranscript.ID:
                         start = int(line[3])
                         end   = int(line[4])
@@ -941,19 +948,21 @@ class DBloader(GeneLoader):
 def initializeDB(filename):
     """Create a new database in 'filename' and write the Genes, Transcripts, and Exons tables to it."""
     conn = sql.connect(filename)
-    conn.execute("DROP TABLE IF EXISTS Genes;")
-    conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int);")
-    for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
-        conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
-    conn.execute("DROP TABLE IF EXISTS Transcripts;")
-    conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int);")
-    for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
-        conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
-    conn.execute("DROP TABLE IF EXISTS Exons;")
-    conn.execute("CREATE TABLE Exons (ID varchar, idx int, chrom varchar, start int, end int);")
-    for field in ['ID', 'chrom', 'start', 'end']:
-        conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
-    conn.close()
+    try:
+        conn.execute("DROP TABLE IF EXISTS Genes;")
+        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int);")
+        for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
+            conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
+        conn.execute("DROP TABLE IF EXISTS Transcripts;")
+        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int);")
+        for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
+            conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
+        conn.execute("DROP TABLE IF EXISTS Exons;")
+        conn.execute("CREATE TABLE Exons (ID varchar, idx int, chrom varchar, start int, end int);")
+        for field in ['ID', 'chrom', 'start', 'end']:
+            conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
+    finally:
+        conn.close()
     
 ### Main
 
