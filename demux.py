@@ -192,6 +192,14 @@ class BarcodeMgr():
         for b in self.barcodes.itervalues():
             b.openStream(filename, filename2)
 
+    def allFilenames(self):
+        result = []
+        for b in self.barcodes.itervalues():
+            result.append(b.filename)
+            if b.filename2:
+                result.append(b.filename2)
+        return result
+
     def closeAll(self):
         for b in self.barcodes.itervalues():
             b.closeStream()
@@ -225,6 +233,7 @@ class BarcodeMgr():
         hiddenh = 0             # Hits for barcodes not shown
         ranking = [b for b in self.barcodes.itervalues()]
         ranking.sort(key=lambda b:b.nhits, reverse=True)
+        sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
         for b in ranking:
             seq = b.seq
             if P.revcomp:
@@ -234,12 +243,12 @@ class BarcodeMgr():
             else:
                 pct = 100.0 * b.nhits / self.nhits
             if pct >= P.minpct:
-                sys.stdout.write("{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct))
+                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
             else:
                 hiddenb += 1
                 hiddenh += b.nhits
         if hiddenb > 0 and self.nhits > 0:
-            sys.stdout.write("Other\t({})\t{}\t{}\n".format(hiddenb, hiddenh, 100.0 * hiddenh / self.nhits))
+            sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, 100.0 * hiddenh / self.nhits))
 
 class FastqRec():
     name = ""
@@ -364,6 +373,13 @@ class PairedFastqReader():
         sys.stderr.write("Written: {}\n".format(self.ngood))
 
 ### Main
+
+def getFastqBasename(filename):
+    fn = os.path.split(filename)[1]
+    sp = os.path.splitext(fn)
+    if sp[1] == '.gz':
+        sp = os.path.splitext(sp[0])
+    return sp[0]
 
 def main(args):
     P.parseArgs(args)
