@@ -10,6 +10,14 @@ import string
 import random
 import subprocess
 
+def genOpen(filename, mode):
+    """Generalized open() function - works on both regular files and .gz files."""
+    (name, ext) = os.path.splitext(filename)
+    if ext == ".gz":
+        return gzip.open(filename, mode)
+    else:
+        return open(filename, mode)
+
 def dget(key, dictionary, default=None):
     """Return the value associated with `key' in `dictionary', if present, or `default'."""
     if key in dictionary:
@@ -256,8 +264,8 @@ def extractExpressions(sigfile, exprfile, outfile, sigidcol=0, sigfccol=1, idcol
 def countReadsInBAM(filename):
     stats = pysam.idxstats(filename)
     nreads = 0
-    for row in stats:
-        row.rstrip("\r\n")
+    for row in stats.split("\n"):
+        row.rstrip("\r")
         fields = row.split("\t")
         if len(fields) > 2 and fields[0] != '*':
             nreads += int(fields[2])
@@ -387,7 +395,7 @@ autoScale on
 
     def addBedGraph(self, filename, name, shortLabel, longLabel):
         bname = self.getBasename(filename)
-        bw = bname + ".bw"
+        bw = name + ".bw"
         bwpath = self.dirname + "/" + self.genome + "/" + bw
         if self.missingOrStale(bwpath, filename):
             self.shell("{}/bedGraphToBigWig {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
@@ -400,7 +408,7 @@ longLabel {}
 type bigWig
 autoScale on
 
-""".format(name, self.parent, bw, shortLabel, longLabel))
+""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)))
 
     def addBed(self, filename, name, shortLabel, longLabel):
         bname = self.getBasename(filename)

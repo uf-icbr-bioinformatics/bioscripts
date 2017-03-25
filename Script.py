@@ -6,7 +6,7 @@ import os.path
 class Script():
     name = ""
     version = "1.0"
-    copyright = "(c) 2016, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida"
+    copyright = "(c) 2017, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida"
     usagefun = None
     errorNames = {}
     errorMsg = {}
@@ -62,6 +62,7 @@ and the following one (if any). Otherwise, returns None."""
         return None
 
     def standardOpts(self, args):
+        """Process the standard arguments. If any of them are found, this function does not return."""
         harg = self.getOptionValue(args, ['-h', '--help', '-E', '-v', '--version'])
         if harg:
             opt = harg[0]

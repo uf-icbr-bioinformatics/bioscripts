@@ -163,6 +163,8 @@ def methToBedGraph(infile, trackdata):
             out.close()
 
 def homerToBedGraph(infile, trackdata):
+    data = {}
+
     if trackdata.outfile:
         out = open(trackdata.outfile, "w")
     else:
@@ -174,10 +176,18 @@ def homerToBedGraph(infile, trackdata):
                 if line != '' and line[0] != '#':
                     parsed = line.rstrip("\r\n").split("\t")
                     chrom = parsed[1]
+                    if chrom not in data:
+                        data[chrom] = []
                     start = int(parsed[2])
                     end = int(parsed[3])
                     fc = float(parsed[5])
-                    out.write("{}\t{}\t{}\t{}\n".format(chrom, start, end, fc))
+                    data[chrom].append((start, end, fc))
+                    
+        for chrom in sorted(data):
+            data[chrom].sort(key=lambda r: r[0])
+            for row in data[chrom]:
+                out.write("{}\t{}\t{}\t{}\n".format(chrom, row[0], row[1], row[2]))
+
     finally:
         if trackdata.outfile:
             out.close()

@@ -2,15 +2,75 @@
 
 import sys
 import csv
+import sqlite3 as sql
 import Script
 
 def usage():
-    sys.stderr.write("""to be written""")
+    sys.stderr.write("""to be written
+""")
+
+### Program object
+
+class Prog(Script.Script):
+    source = None
+    sourcetype = ""
+    args = []
+    distance = 2000
+    gl = None                   # Gene list
+
+    def parseArgs(self, args):
+        cmd = None
+        next = ""
+        
+        self.standardOpts(args)
+        for a in args:
+            if next == '-gff':
+                self.source = P.isFile(a)
+                self.sourcetype = 'GFF'
+                next = ""
+            elif next == '-db':
+                self.source = P.isFile(a)
+                self.sourcetype = 'DB'
+                next = ""
+            elif next == '-d':
+                self.distance = P.toInt(a)
+                next = ""
+            elif a in ["-gff", "-db", "-d"]:
+                next = a
+            elif cmd:
+                self.args.append(a)
+            else:
+                cmd = a
+        return cmd
+
+P = Prog("genes.py", version="1.0", usage=usage, errors=[('BADSRC', 'Missing gene database')])
 
 # Utils
 
 def f2dd(x):
     return "{:.2f}".format(x)
+
+def dget(key, dict, default=None):
+    if key in dict:
+        return dict[key]
+    else:
+        return default
+
+def parseRegion(c):
+    """Parse a region specification of the form chr:start-end and return a
+tuple containing the three elements. If -end is omitted, the third element
+will be equal to the second one."""
+    dc = c.find(":")
+    if dc > 0:
+        chrom = c[:dc]
+        dd = c.find("-")
+        if dd > 0:
+            return (chrom, int(c[dc+1:dd]), int(c[dd+1:]))
+        else:
+            pos = int(c[dc+1:])
+            return (chrom, pos, pos)
+    else:
+        return None
 
 def parseCoords(c):
     """Parse a pair of coordinates in the form X..Y and return them as ints."""
@@ -74,6 +134,13 @@ class Genelist():
         self.genes = {}
         self.btFlags = {"": True, "*": True}
 
+    def saveAllToDB(self, conn):
+        """Save all genes to the database represented by connection `conn'."""
+        with conn:
+            for chrom in self.chroms:
+                for g in self.genes[chrom]:
+                    g.saveToDB(conn)
+
     def setWanted(self, wanted):
         """Set all biotypes in `wanted' to True, all others to False."""
         for w in wanted:
@@ -122,7 +189,7 @@ class Genelist():
         if chrom:
             cgenes = self.genes[chrom]
             for g in cgenes:
-                if g.mrna == name or g.name == name:
+                if g.ID == name or g.name == name:
                     return g
             return None
         else:
@@ -267,6 +334,66 @@ class Genelist():
                         out.write("{}\t{}\t{}\t{}_{}_b\t{}\t{}\n".format(chrom, ex[1]-10, ex[1]+10, gene.mrna, intid, gene.name, gene.strand))
                         intid += 1
 
+class GenelistDB(Genelist):
+    conn = None                 # DB connection
+    preloaded = False           # Did we preload all genes into the Genelist?
+
+    def findGene(self, name, chrom=None):
+        gcur = self.conn.cursor()
+        tcur = self.conn.cursor()
+        ecur = self.conn.cursor()
+        gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=? OR name=? OR geneid=? OR ensg=?", 
+                     (name, name, name, name))
+        row = gcur.fetchone()
+        if row:
+            gid = row[0]
+            g = Gene(gid, row[5], row[6])
+            for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                setattr(g, pair[0], pair[1])
+            for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                tid = trow[0]
+                tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                tr.exons = []
+                for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                    setattr(tr, pair[0], pair[1])
+                for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                    tr.addExon(erow[0], erow[1])
+                g.addTranscript(tr)
+            return g
+        else:
+            return None
+
+    def findGenes(self, query, args):
+        result = []
+        qcur = self.conn.cursor()
+        gcur = self.conn.cursor()
+        tcur = self.conn.cursor()
+        ecur = self.conn.cursor()
+        for geneIDrow in qcur.execute(query, args):
+            geneID = geneIDrow[0]
+            row = gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=?", (geneID,)).fetchone()
+            if row:
+                gid = row[0]
+                g = Gene(gid, row[5], row[6])
+                for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                    setattr(g, pair[0], pair[1])
+                for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                    tid = trow[0]
+                    tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                    tr.exons = []
+                    for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                        setattr(tr, pair[0], pair[1])
+                    for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                        tr.addExon(erow[0], erow[1])
+                    g.addTranscript(tr)
+                result.append(g)
+        return result
+
+    def allIntersecting(self, chrom, start, end):
+        """Returns all genes in `chrom' that intersect the `start-end' region."""
+        return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
+                              (chrom, start, end, start, end, start, end))
+
 # Gene class
 
 class Transcript():
@@ -305,6 +432,17 @@ class Transcript():
             print "{}Transcript: {}-{}".format(prefix, self.txstart, self.txend)
             print "{}CDS: {}-{}".format(prefix, self.cdsstart, self.cdsend)
             print "{}Exons: {}".format(prefix, self.exons)
+
+    def saveToDB(self, conn, parentID):
+        with conn:
+            idx = 0
+            for ex in self.exons:
+                conn.execute("INSERT INTO Exons(ID, idx, chrom, start, end) VALUES (?, ?, ?, ?, ?);",
+                             (self.ID, idx, self.chrom, ex[0], ex[1]))
+                idx += 1
+
+            conn.execute("INSERT INTO Transcripts (ID, parentID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                         (self.ID, parentID, self.name, self.accession, self.enst, self.chrom, self.strand, self.txstart, self.txend, self.cdsstart, self.cdsend))
 
     def addExon(self, start, end):
         self.exons.append((start, end))
@@ -468,6 +606,13 @@ class Gene():
         for t in self.transcripts:
             t.dump(prefix="  ", short=True)
 
+    def saveToDB(self, conn):
+        with conn:
+            for tr in self.transcripts:
+                tr.saveToDB(conn, self.ID)
+            conn.execute("INSERT INTO Genes (ID, name, geneid, ensg, biotype, chrom, strand, start, end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                         (self.ID, self.name, self.geneid, self.ensg, self.biotype, self.chrom, self.strand, self.start, self.end))
+
     def addTranscript(self, transcript):
         self.transcripts.append(transcript)
         if self.start:
@@ -478,6 +623,15 @@ class Gene():
             self.end = max(self.end, transcript.txend)
         else:
             self.end = transcript.txend
+
+    def classifyPosition(self, position, distance):
+        """Returns a string containing all possible classifications of `position' for the transcript of this gene."""
+        result = []
+        for tr in self.transcripts:
+            c = tr.classifyPosition(position, distance)
+            if c and c not in result:
+                result.append(c)
+        return "".join(sorted(result))
 
 class GeneLoader():
     gl = None
@@ -588,7 +742,7 @@ class GenbankLoader(GeneLoader):
 
 class GTFloader(GeneLoader):
 
-    def parseAnnotationsGTF(self, ann):
+    def parseAnnotations(self, ann):
         """Parse GTF annotations `ann' and return them as a dictionary."""
         anndict = {}
         pieces = [ s.strip(" ") for s in ann.split(";") ]
@@ -600,7 +754,7 @@ class GTFloader(GeneLoader):
                 anndict[key] = val
         return anndict
 
-    def _load(wanted=[], notwanted=[]):
+    def _load(self, wanted=[], notwanted=[]):
         """Read genes from a DTF file `filename'. If `wanted' is specified, only include genes whose biotype
 is in this list (or missing). If `notwanted' is specified, only include genes whose biotype is not in this list (or missing)."""
         g = None                # Current gene
@@ -619,6 +773,8 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                 else:
                     strand = -1
                 chrom = self.validateChrom(line[0])
+                if not chrom:
+                    continue    # skip this entry
                 btype = line[2]
                 if btype == 'gene':
                     if False: # gt:
@@ -628,7 +784,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                         genes.add(gt, gt.chrom)
                     g = Gene([], chrom=chrom, strand=strand) 
                     gt = None
-                    ann = parseAnnotationsGTF(line[8])
+                    ann = parseAnnotations(line[8])
                     if 'gene_name' in ann:
                         g.name = ann['gene_name']
                     else:
@@ -646,10 +802,9 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     gt.biotype = g.biotype
                     gt.txstart = int(line[3])
                     gt.txend   = int(line[4])
-                    ann = parseAnnotationsGTF(line[8])
+                    ann = parseAnnotations(line[8])
                     gt.mrna = ann['transcript_id']
-                    if 'transcript_name' in ann:
-                        gt.txname = ann['transcript_name']
+                    gt.txname = dget('transcript_name', ann)
                     genes.add(gt, gt.chrom)
                 elif btype == 'CDS':
                     start = int(line[3])
@@ -664,226 +819,196 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     gt.exons.append((start, end))
         genes.add(gt, gt.chrom)
 
-## Read genes from a Genbank file
+class GFFloader(GeneLoader):
 
-def readGenesFromGenbank(filename):
-    """Parse a genbank file `filename' and return a list of all the genes it contains."""
-    genes = Genelist()
-    chrom = ""
-    thisGene = None
-    start = None
-    end = None
-    strand = None
-    cdsstart = None
-    cdsend = None
-    section = ""
+    def parseAnnotations(self, ann):
+        anndict = {}
+        pieces = [ s.strip(" ") for s in ann.split(";") ]
+        for p in pieces:
+            pair = p.split("=")
+            if len(pair) == 2:
+                anndict[pair[0]] = pair[1].strip('"')
+        return anndict
 
-    infeatures = False
-    with open(filename, "r") as f:
-        for line in f:
-            line = line.rstrip("\r\n")
-            if infeatures:
-                key = line[0:20].strip()
-                if key == '':   # still in previous section?
-                    if section == 'gene':
-                        data = line[21:]
-                        # print "In gene section: {}".format(data)
-                        if data[0:5] == '/gene':
-                            # print "Setting name to {}".format(data[7:-1])
-                            thisGene.name = data[7:-1]
-                        elif data[0:10] == '/locus_tag' and thisGene.name == '':
-                            thisGene.name = data[12:-1]
-                elif key == 'gene':
-                    # print "Found new gene"
-                    # raw_input()
-                    section = key
-                    start, end, strand, ignore = parseStartEnd(line[21:])
-                    # print "New gene at ({}, {})".format(start, end)
-                    thisGene = Gene([(start, end)], strand=strand)
-                    thisGene.chrom = chrom
-                    genes.add(thisGene, chrom)
-                elif key == 'CDS':
-                    cdsstart, cdsend, ignore, introns = parseStartEnd(line[21:])
-                    # print "Setting CDS to ({}, {})".format(cdsstart, cdsend)
-                    if introns:
-                        # print "Setting introns: {}".format(introns)
-                        thisGene.setIntrons(introns)
-                    
-                    thisGene.setCDS(cdsstart, cdsend)
-                    # print thisGene.smallrects
-                    # print thisGene.largerects
-                else:
-                    section = ''
-            elif line[0:9] == 'ACCESSION': # 'LOCUS':
-                chrom = line[12:line.find(" ", 12)]
-            elif line[0:8] == 'FEATURES':
-                infeatures = True
-    genes.sortGenes()
-    genes.buildIndexes()
-    return genes
+    def cleanID(self, idstring):
+        if not idstring:
+            return ""
+        if idstring.startswith("gene:"):
+            return idstring[5:]
+        if idstring.startswith("transcript:"):
+            return idstring[11:]
+        return idstring
 
-## Read genes from a refFlat file (UCSC genome browser)
+    def _load(self, wanted=[], notwanted=[]):
+        chrom = ""
+        strand = 0
+        orphans = 0             # Entries not following their parents
 
-def parseRefExons(starts, ends):
-    starts = starts.rstrip(",").split(",")
-    ends   = ends.rstrip(",").split(",")
-    return [ (int(s), int(e)) for (s,e) in zip(starts, ends) ]
+        if wanted <> []:
+            self.gl.setWanted(wanted)
+        elif notwanted <> []:
+            self.gl.setNotWanted(notwanted)
 
-def readGenesFromRefFlat(filename):
-    genes = Genelist()
-
-    with open(filename, "r") as f:
-        for line in f:
-            line = line.rstrip("\r\n").split("\t")
-            if line[3] == '+':
-                strand = 1
-            else:
-                strand = -1
-            g = Gene(parseRefExons(line[9], line[10]), strand=strand)
-            g.name = line[0]
-            g.mrna = line[1]
-            g.chrom = line[2]
-            g.setCDS(int(line[6]), int(line[7]))
-            genes.add(g, g.chrom)
-    genes.sortGenes()
-    genes.buildIndexes()
-    return genes
-
-## Read genes from a GFF3 file
-
-def parseAnnotations(ann):
-    anndict = {}
-    pieces = [ s.strip(" ") for s in ann.split(";") ]
-    for p in pieces:
-        pair = p.split("=")
-        if len(pair) == 2:
-            anndict[pair[0]] = pair[1].strip('"')
-    return anndict
-
-def readGenesFromGFF3(filename):
-    genes = Genelist()
-
-    with open(filename, "r") as f:
-        g = None
-        for line in f:
-            line = line.rstrip("\r\n").split("\t")
-            if line[6] == '+':
-                strand = 1
-            else:
-                strand = -1
-            chrom = line[0]
-            btype = line[2]
-            if btype == 'gene':
-                if g:
-                    g.setCDS(g.cdsstart, g.cdsend)
-                    # g.dump()
-                    # raw_input()
-                    if g.txstart > 0:
-                        genes.add(g, g.chrom)
-                g = Gene([], chrom=chrom, strand=strand) 
-                ann = parseAnnotations(line[8])
-                g.name = ann['ID'][5:]
-            elif btype == 'mRNA':
-                start = int(line[3])
-                end   = int(line[4])
-                g.txstart = start
-                g.txend = end
-                ann = parseAnnotations(line[8])
-                g.mrna = ann['ID'][11:]
-            elif btype == 'CDS':
-                start = int(line[3])
-                end   = int(line[4])
-                if g.cdsstart == None:
-                    g.cdsstart = start
-                g.cdsend = end
-            elif btype == 'exon':
-                start = int(line[3])
-                end   = int(line[4])
-                g.exons.append((start, end))
-        if g.txstart > 0:
-            genes.add(g, g.chrom)
-    genes.buildIndexes()
-    return genes
-
-def parseAnnotationsGTF(ann):
-    anndict = {}
-    pieces = [ s.strip(" ") for s in ann.split(";") ]
-    for p in pieces:
-        f = p.find(" ")
-        if f > 0:
-            key = p[0:f]
-            val = p[f+1:].strip('"')
-            anndict[key] = val
-    return anndict
-
-def readGenesFromGTF(filename, wanted=[], notwanted=[]):
-    """Read genes from the GTF file `filename' and return a Genelist object
-containing them. If `wanted' is specified, only include genes whose biotype
-is in this list (or missing). If `notwanted' is specified, only include genes
-whose biotype is not in this list (or missing)."""
-    genes = Genelist()
-    if wanted <> []:
-        genes.setWanted(wanted)
-    elif notwanted <> []:
-        genes.setNotWanted(notwanted)
-
-    with open(filename, "r") as f:
-        g = None                # Current gene
-        gt = None               # Current transcript
-        for line in f:
-            if len(line) > 0 and line[0] <> '#':
-                line = line.rstrip("\r\n").split("\t")
+        with open(self.filename, "r") as f:
+            reader = CSVreader(f)
+            for line in reader:
+                if len(line) < 8:
+                    print "|"+line+"|"
                 if line[6] == '+':
                     strand = 1
                 else:
                     strand = -1
-                chrom = line[0]
-                if not chrom.startswith('chr') or chrom.startswith('Chr'):
-                    chrom = "chr" + chrom
-                btype = line[2]
-                if btype == 'gene':
-                    if False: # gt:
-                        gt.setCDS(g.cdsstart, g.cdsend)
-                        g.dump()
-                        raw_input()
-                        genes.add(gt, gt.chrom)
-                    g = Gene([], chrom=chrom, strand=strand) 
-                    gt = None
-                    ann = parseAnnotationsGTF(line[8])
-                    if 'gene_name' in ann:
-                        g.name = ann['gene_name']
-                    else:
-                        g.name = ann['gene_id']
-                    g.geneid = ann['gene_id']
-                    g.biotype = ann['gene_biotype']
-                elif btype == 'transcript':
-                    if gt:
-                        gt.setCDS(gt.cdsstart, gt.cdsend)
-                        # gt.dump()
-                        # raw_input()
-                    gt = Gene([], chrom=g.chrom, strand=g.strand) # clone gene into transcript
-                    gt.name = g.name
-                    gt.geneid = g.geneid
-                    gt.biotype = g.biotype
-                    gt.txstart = int(line[3])
-                    gt.txend   = int(line[4])
-                    ann = parseAnnotationsGTF(line[8])
-                    gt.mrna = ann['transcript_id']
-                    if 'transcript_name' in ann:
-                        gt.txname = ann['transcript_name']
-                    genes.add(gt, gt.chrom)
-                elif btype == 'CDS':
-                    start = int(line[3])
-                    end   = int(line[4])
-                    if gt.cdsstart == None:
-                        gt.cdsstart = start
-                    gt.cdsend = end
-                elif btype == 'exon':
-                    start = int(line[3])
-                    end   = int(line[4])
-                    # print (start, end)
-                    gt.exons.append((start, end))
-        genes.add(gt, gt.chrom)
-    genes.buildIndexes()
-    return genes
+                chrom = self.validateChrom(line[0])
+                if not chrom:
+                    continue
+                tag = line[2]
 
+                if tag in ['gene', 'miRNA_gene', 'lincRNA_gene']:
+                    ann   = self.parseAnnotations(line[8])
+                    gid   = self.cleanID(dget('ID', ann))
+                    self.currGene = Gene(gid, chrom, strand)
+                    self.currGene.name = dget('Name', ann, "")
+                    self.currGene.biotype = dget('biotype', ann)
+                    self.gl.add(self.currGene, chrom)
+                    
+                elif tag in ['mRNA', 'transcript', 'processed_transcript', 'pseudogenic_transcript', 'pseudogene', 'processed_pseudogene', 'miRNA', 'lincRNA']:
+                    ann = self.parseAnnotations(line[8])
+                    tid = self.cleanID(dget('ID', ann))
+                    pid = self.cleanID(dget('Parent', ann))
+                    self.currTranscript = Transcript(tid, chrom, strand, int(line[3]), int(line[4]))
+                    self.currTranscript.name = dget('Name', ann, "")
+                    self.currTranscript.biotype = dget('biotype', ann)
+                    self.currTranscript.exons = [] # Exons come later in the file
+                    if pid == self.currGene.ID:
+                        self.currGene.addTranscript(self.currTranscript)
+                    else:
+                        orphans += 1
+
+                elif tag == 'exon':
+                    ann = self.parseAnnotations(line[8])
+                    pid = self.cleanID(dget('Parent', ann))
+                    if pid == self.currTranscript.ID:
+                        start = int(line[3])
+                        end   = int(line[4])
+                        self.currTranscript.addExon(start, end)
+                    else:
+                        orphans += 1
+
+                elif tag == 'CDS':
+                    ann = self.parseAnnotations(line[8])
+                    pid = self.cleanID(dget('Parent', ann))
+                    if pid == self.currTranscript.ID:
+                        start = int(line[3])
+                        end   = int(line[4])
+                        self.currTranscript.setCDS(start, end)
+                    else:
+                        orphans += 1
+
+        sys.stderr.write("Orphans: {}\n".format(orphans))
+
+class DBloader(GeneLoader):
+    conn = None
+
+    def _load(self, preload=False, wanted=[], notwanted=[]):
+        self.gl = GenelistDB()
+        self.gl.preloaded = preload
+        self.conn = sql.connect(self.filename)
+        self.gl.conn = self.conn
+        if preload:
+            gcur = self.conn.cursor()
+            tcur = self.conn.cursor()
+            ecur = self.conn.cursor()
+            for row in gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes"):
+                gid = row[0]
+                g = Gene(gid, row[5], row[6])
+                for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                    setattr(g, pair[0], pair[1])
+                self.gl.add(g, g.chrom)
+                for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                    tid = trow[0]
+                    tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                    for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                        setattr(tr, pair[0], pair[1])
+                    for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                        tr.addExon(erow[0], erow[1])
+                    g.addTranscript(tr)
+        else:
+            row = self.conn.execute("SELECT count(*) FROM Genes").fetchone()
+            self.gl.ngenes = row[0]
+
+### Database stuff
+
+def initializeDB(filename):
+    """Create a new database in 'filename' and write the Genes, Transcripts, and Exons tables to it."""
+    conn = sql.connect(filename)
+    conn.execute("DROP TABLE IF EXISTS Genes;")
+    conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int);")
+    for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
+        conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
+    conn.execute("DROP TABLE IF EXISTS Transcripts;")
+    conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int);")
+    for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
+        conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
+    conn.execute("DROP TABLE IF EXISTS Exons;")
+    conn.execute("CREATE TABLE Exons (ID varchar, idx int, chrom varchar, start int, end int);")
+    for field in ['ID', 'chrom', 'start', 'end']:
+        conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
+    conn.close()
+    
+### Main
+
+def loadGenes(source, format):
+    if format == 'GFF':
+        l = GFFloader(source)
+    elif format == 'DB':
+        l = DBloader(source)
+    else:
+        P.errmsg(P.BADSRC)
+    sys.stderr.write("Loading genes from {} database {}... ".format(format, source))
+    gl = l.load()
+    sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
+    return gl
+
+def main(args):
+    cmd = P.parseArgs(args)
+    P.gl = loadGenes(P.source, P.sourcetype)
+    if cmd == 'region':         # Print the region for the genes passed as arguments.
+        if len(P.args) == 0:
+            P.errmsg()
+        for name in P.args:
+            gene = P.gl.findGene(name)
+            if gene:
+                sys.stdout.write("{}\t{}:{}-{}\n".format(name, gene.chrom, gene.start, gene.end))
+            else:
+                sys.stderr.write("No gene `{}'.\n".format(name))
+    elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.
+        if len(P.args) == 0:
+            P.errmsg()
+        sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
+        for name in P.args:
+            gene = P.gl.findGene(name)
+            if gene:
+                for tx in gene.transcripts:
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(name, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
+            else:
+                sys.stderr.write("No gene `{}'.\n".format(name))
+    elif cmd == 'classify':  # Classify the given position (chr:pos) according to the transcripts it falls in
+        reg = parseRegion(P.args[0])
+        pos = reg[1]
+        genes = P.gl.allIntersecting(reg[0], pos - P.distance, pos + P.distance)
+        # sys.stdout.write("Gene\tID\tAccession\tClass\n")
+        sys.stdout.write("Gene\tID\tClass\n")
+        for g in genes:
+            name = g.name
+            c = g.classifyPosition(pos, P.distance)
+            sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
+            # for tr in g.transcripts:
+            #     c = tr.classifyPosition(pos, P.distance)
+            #     sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if len(args) > 0:
+        main(args)
+    else:
+        P.errmsg(P.NOCMD)
