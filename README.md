@@ -11,13 +11,14 @@ command-line programs in a Python 2.7 environment. If your Python
 executable is not in a standard location, please adjust the first line
 (starting with #!) accordingly.
 
-All scripts require the <tt>Script.py</tt> file, that should therefore be
-located in the same directory as the script you are executing. In
-addition: 
+All scripts require the <tt>Script.py</tt> and <tt>Utils.py</tt> files, 
+that should therefore be located in the same directory as the script you 
+are executing. In addition: 
 
 * <tt>bisconv.py</tt> and <tt>regionscount.py</tt> require the [pysam](https://pysam.readthedocs.io/en/latest/) library;
 * <tt>methreport.py</tt> and <tt>methylfilter.py</tt> require the SeqIO module from [BioPython](https://github.com/biopython/biopython.github.io/).
 * <tt>dmaptools.py</tt> requires [scipy](https://www.scipy.org/).
+* <tt>genes.py</tt> requires the sqlite3 module.
 
 ### Common arguments
 
@@ -51,10 +52,13 @@ Name | Description
 <tt>chromCoverage.py</tt>   | Report per-chromosome coverage.
 <tt>compareIntrons.py</tt>  | Analyze intron retention.
 <tt>countseqs.py</tt>       | Count sequences in fasta/fastq[.gz] files.
+<tt>demux.py</tt>           | Separate reads in fastq files by barcode.
 <tt>dmaptools.py</tt>       | Utilities for methylation analysis.
+<tt>genes.py</tt>           | Create and manipulate gene databases.
 <tt>mergeCols.py</tt>       | Merge columns from multiple files.
 <tt>methreport.py</tt>      | Report methylation rate at CG and GC positions.
 <tt>methylfilter.py</tt>    | Separate sequences by average methylation.
 <tt>pileupToBED.py</tt>     | Convert a samtools pileup to a BED file.
 <tt>regionsCount.py</tt>    | Compute coverage from BAM file in specified regions.
 <tt>removeN.py</tt>         | Remove Ns from sequences in FASTA file.
+<tt>rnaseqtools.py</tt>     | Utilities for RNA-seq analysis.
