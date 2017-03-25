@@ -8,18 +8,30 @@ import Script
 def usage():
     sys.stderr.write("""demux.py - Operate on barcodes in fastq files
 
-Usage: demux.py split [options] fastq1 [fastq2]
-       demux.py detect [options] fastq
+Usage: demux.py detect [options] fastq
+       demux.py split [options] fastq1 [fastq2]
 
-`barcodes' should be a tab-delimited file, with labels in the first column 
-and barcode sequences in the second one. For paired-end mode, specify two
-fastq files.
+The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
+the input file is assumed to be in fastq format and the barcodes are extracted from 
+the final part of the read header (e.g., 1:N:0:TACAGC). If the -s option is specified, 
+barcodes are instead extracted from the read sequence, extracting its first S bases if
+S is positive, or its last S bases if negative. The number of lines examined can be 
+controlled with the -n option. Only barcodes with a frequency greater than the one 
+specified with the -p option are reported. Detected barcodes are written to standard
+output in tab-delimited format. The output is suitable as the barcodes file for the 
+`split' command.
+
+The `split' command separates the reads from a fastq file (or two fastq files in 
+paired-end mode) into one file for each barcode, plus (optionally) a file for reads 
+with unmatched barcodes. The barcodes file should be tab-delimited, with labels in 
+the first column and barcode sequences in the second one. 
 
 Options:
 
   -b FILE | File containing barcode sequences
   -r      | Barcodes are reverse-complemented
   -u      | Do not write sequences with unknown indexes to UND-...
+  -s S    | Number of barcode bases at the beginning (or end if negative) of read.
   -m N    | Allow at most N mismatches in the barcode (default: {})
   -n N    | Number of reads to examine for barcode autodetection (default: {})
   -p N    | Do not show detected barcodes occurring in less than N% of reads (default: {})
@@ -39,6 +51,7 @@ class Demux(Script.Script):
     nf = 0                      # Number of input files
     ndetect = 10000             # Number of reads for barcode detection
     minpct = 1
+    bclen = None
 
     def parseArgs(self, args):
         self.nf = 0
@@ -63,7 +76,10 @@ class Demux(Script.Script):
             elif next == '-p':
                 self.minpct = self.toFloat(a)
                 next = ""
-            elif a in ['-m', '-b', '-n', '-p']:
+            elif next == '-s':
+                self.bclen = self.toInt(a)
+                next = ""
+            elif a in ['-m', '-b', '-n', '-p', '-s']:
                 next = a
             elif a == '-r':
                 self.revcomp = True
@@ -230,13 +246,24 @@ class FastqRec():
     seq = ""
     qual = ""
 
-    def getBarcode(self):
-        c = self.name.rfind(":")
-        if c > 0:
-            return self.name[c+1:]
+    def getBarcode(self, bclen):
+        if bclen == None:
+            c = self.name.rfind(":")
+            if c > 0:
+                return self.name[c+1:]
+            else:
+                return None
+        elif bclen > 0:
+            if len(self.seq) > bclen:
+                return self.seq[:bclen]
+            else:
+                return None
         else:
-            return None
-
+            if len(self.seq) > bclen:
+                return self.seq[bclen:]
+            else:
+                return None
+        
 class FastqReader():
     filename = ""
     fq = None
@@ -262,14 +289,14 @@ class FastqReader():
             self.fq.qual = self.stream.readline().rstrip("\r\n")
             self.nread += 1
 
-    def demux(self, dm, filename):
+    def demux(self, dm, filename, bclen=None):
         dm.openAll(filename)
         while True:
             self.nextRead()
             if not self.stream:
                 break
             self.nread += 1
-            bc = self.fq.getBarcode()
+            bc = self.fq.getBarcode(bclen)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
             # print "best: " + bo.seq
             # raw_input()
@@ -280,14 +307,14 @@ class FastqReader():
         sys.stderr.write("Total reads: {}\n".format(self.nread))
         sys.stderr.write("Written: {}\n".format(self.ngood))
 
-    def detect(self, ndetect):
+    def detect(self, ndetect, bclen=None):
         """Detect the barcodes contained in the first `ndetect' reads of this fastq file."""
         dm = BarcodeMgr()
         while True:
             self.nextRead()
             if not self.stream:
                 break
-            bc = self.fq.getBarcode()
+            bc = self.fq.getBarcode(bclen)
             dm.findOrCreate(bc)
             if self.nread == ndetect:
                 break
@@ -312,15 +339,15 @@ class PairedFastqReader():
         self.reader1.nextRead()
         self.reader2.nextRead()
 
-    def demux(self, dm, filename1, filename2):
+    def demux(self, dm, filename1, filename2, bclen=None):
         dm.openAll(filename1, filename2)
         while True:
             self.nextRead()
             if not self.reader1.stream:
                 break
             self.nread += 1
-            bc1 = self.fq1.getBarcode()
-            bc2 = self.fq2.getBarcode()
+            bc1 = self.fq1.getBarcode(bclen)
+            bc2 = self.fq2.getBarcode(bclen)
             if bc1 != bc2:
                 self.nbad += 1
                 continue
@@ -351,15 +378,15 @@ def main(args):
 
         if P.nf == 2:
             fr = PairedFastqReader(P.fqleft, P.fqright)
-            fr.demux(bm, nameleft, nameright)
+            fr.demux(bm, nameleft, nameright, P.bclen)
         else:
             fr = FastqReader(P.fqleft)
-            fr.demux(bm, nameleft)
+            fr.demux(bm, nameleft, P.bclen)
         bm.showCounts()
 
     elif P.mode == 'detect':
         fr = FastqReader(P.fqleft)
-        fr.detect(P.ndetect)
+        fr.detect(P.ndetect, P.bclen)
         
 if __name__ == "__main__":
     args = sys.argv[1:]
