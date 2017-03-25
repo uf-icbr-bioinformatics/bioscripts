@@ -175,6 +175,8 @@ class BarcodeMgr():
                 line = line.rstrip("\r\n").split("\t")
                 if len(line) < 2:
                     continue
+                if line[0] == 'Other': # when reading output of `detect' command...
+                    continue
                 if rc:
                     bc = revcomp(line[1])
                 else:
@@ -215,8 +217,12 @@ class BarcodeMgr():
                     best = bc
         # print maxd
         if maxd <= maxmismatch:
-            return self.barcodes[best]
+            bb = self.barcodes[best]
+            self.nhits += 1
+            #bb.nhits += 1
+            return bb
         elif "*" in self.barcodes:
+            self.nhits += 1
             return self.barcodes["*"]
         else:
             return None
@@ -233,6 +239,7 @@ class BarcodeMgr():
         hiddenh = 0             # Hits for barcodes not shown
         ranking = [b for b in self.barcodes.itervalues()]
         ranking.sort(key=lambda b:b.nhits, reverse=True)
+
         sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
         for b in ranking:
             seq = b.seq
@@ -241,14 +248,14 @@ class BarcodeMgr():
             if self.nhits == 0:
                 pct = 0
             else:
-                pct = 100.0 * b.nhits / self.nhits
+                pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
             if pct >= P.minpct:
                 sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
             else:
                 hiddenb += 1
                 hiddenh += b.nhits
         if hiddenb > 0 and self.nhits > 0:
-            sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, 100.0 * hiddenh / self.nhits))
+            sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, Utils.f2dd(100.0 * hiddenh / self.nhits)))
 
 class FastqRec():
     name = ""
@@ -278,6 +285,7 @@ class FastqReader():
     fq = None
     stream = None
     nread = 0
+    ngood = 0
 
     def __init__(self, filename):
         self.filename = filename
@@ -304,7 +312,6 @@ class FastqReader():
             self.nextRead()
             if not self.stream:
                 break
-            self.nread += 1
             bc = self.fq.getBarcode(bclen)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
             # print "best: " + bo.seq
@@ -347,6 +354,7 @@ class PairedFastqReader():
     def nextRead(self):
         self.reader1.nextRead()
         self.reader2.nextRead()
+        self.nread += 1
 
     def demux(self, dm, filename1, filename2, bclen=None):
         dm.openAll(filename1, filename2)
@@ -354,7 +362,6 @@ class PairedFastqReader():
             self.nextRead()
             if not self.reader1.stream:
                 break
-            self.nread += 1
             bc1 = self.fq1.getBarcode(bclen)
             bc2 = self.fq2.getBarcode(bclen)
             if bc1 != bc2:
@@ -386,8 +393,11 @@ def main(args):
 
     if P.mode == 'split':
 
-        nameleft = P.fqleft[0:-9]     # *** HACK: assume ends in .fastq.gz
-        nameright = P.fqright[0:-9]
+        nameleft = getFastqBasename(P.fqleft)
+        if P.fqright:
+            nameright = getFastqBasename(P.fqright)
+        else:
+            nameright = None
 
         bm = BarcodeMgr()
         bm.initFromFile(P.bcfile, rc=P.revcomp, undet=P.undet)
