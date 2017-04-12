@@ -26,6 +26,11 @@ paired-end mode) into one file for each barcode, plus (optionally) a file for re
 with unmatched barcodes. The barcodes file should be tab-delimited, with labels in 
 the first column and barcode sequences in the second one. 
 
+The `grep' command extracts read pairs containing at least one occurrence of a specified
+pattern, in either the left or right mate of each pair. Use -lt to specify the pattern
+to be searched for in the left mate, and -rt for the right mate (if not specified, defaults
+to reverse-complement of -lt).
+
 Options:
 
   -b FILE | File containing barcode sequences
@@ -35,6 +40,8 @@ Options:
   -m N    | Allow at most N mismatches in the barcode (default: {})
   -n N    | Number of reads to examine for barcode autodetection (default: {})
   -p N    | Do not show detected barcodes occurring in less than N% of reads (default: {})
+  -lt P   | Search for pattern P in left reads.
+  -rt P   | Search for pattern P in right reads.
 
 """.format(Demux.maxmismatch, Demux.ndetect, Demux.minpct))
 
@@ -52,12 +59,14 @@ class Demux(Script.Script):
     ndetect = 10000             # Number of reads for barcode detection
     minpct = 1
     bclen = None
+    leftTarget = None
+    rightTarget = None
 
     def parseArgs(self, args):
         self.nf = 0
         self.standardOpts(args)
         cmd = args[0]
-        if cmd in ['split', 'detect']:
+        if cmd in ['split', 'detect', 'grep']:
             self.mode = cmd
         else:
             P.errmsg(P.NOCMD)
@@ -79,21 +88,28 @@ class Demux(Script.Script):
             elif next == '-s':
                 self.bclen = self.toInt(a)
                 next = ""
-            elif a in ['-m', '-b', '-n', '-p', '-s']:
+            elif next == '-lt':
+                self.leftTarget = a
+                next = ""
+            elif next == '-rt':
+                self.rightTarget = a
+                next = ""
+            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt']:
                 next = a
             elif a == '-r':
                 self.revcomp = True
             elif a == '-u':
                 self.undet = False
             elif self.nf == 0:
-                self.fqleft = self.isFile(a)
+                self.fqleft = "-" if a == "-" else self.isFile(a)
                 self.nf += 1
             elif self.nf == 1:
                 self.fqright = self.isFile(a)
                 self.nf += 1
 
 P = Demux("demux", version="1.0", usage=usage,
-          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect.')])
+          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect.'),
+                  ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.') ])
 
 ### Utils
 
@@ -233,6 +249,7 @@ class BarcodeMgr():
             self.nbarcodes += 1
             self.add("IDX{}".format(self.nbarcodes), seq)
         self.barcodes[seq].nhits += 1
+        return self.barcodes[seq]
 
     def showCounts(self):
         hiddenb = 0             # Barcodes not shown
@@ -290,7 +307,10 @@ class FastqReader():
     def __init__(self, filename):
         self.filename = filename
         self.fq = FastqRec()
-        self.stream = Utils.genOpen(filename, "r")
+        if self.filename == '-':
+            self.stream = sys.stdin
+        else:
+            self.stream = Utils.genOpen(filename, "r")
         self.nread = 0
 
     def nextRead(self):
@@ -334,7 +354,38 @@ class FastqReader():
             dm.findOrCreate(bc)
             if self.nread == ndetect:
                 break
+        sys.stdout.write("# Reads examined: {}\n".format(dm.nhits))
         dm.showCounts()
+
+class FastaReader(FastqReader):
+
+    first = True
+    saved = False
+
+    def nextRead(self):
+        if self.stream:
+            self.fq.seq = ""
+
+            if self.first:
+                self.saved = self.stream.readline().rstrip("\r\n")[1:]
+                self.first = False
+
+            while True:
+                r = self.stream.readline()
+                if r == '':
+                    self.stream.close()
+                    self.stream = None
+                    self.fq.name = self.saved
+                    return False
+                r = r.rstrip("\r\n")
+                if len(r) > 0 and r[0] == '>':
+                    self.fq.name = self.saved
+                    self.saved = r[1:]
+                    return True
+                else:
+                    self.fq.seq += r
+        else:
+            return False
 
 class PairedFastqReader():
     reader1 = None
@@ -346,8 +397,21 @@ class PairedFastqReader():
     ngood = 0
     
     def __init__(self, filename1, filename2):
-        self.reader1 = FastqReader(filename1)
-        self.reader2 = FastqReader(filename2)
+        fmt = Utils.detectFileFormat(filename1)
+        if fmt == 'fasta':
+            self.reader1 = FastaReader(filename1)
+        elif fmt == 'fastq':
+            self.reader1 = FastqReader(filename1)
+        else:
+            P.errmsg(P.BADFMT)
+        fmt = Utils.detectFileFormat(filename2)
+        if fmt == 'fasta':
+            self.reader2 = FastaReader(filename2)
+        elif fmt == 'fastq':
+            self.reader2 = FastqReader(filename2)
+        else:
+            P.errmsg(P.BADFMT)
+
         self.fq1 = self.reader1.fq
         self.fq2 = self.reader2.fq
 
@@ -378,6 +442,31 @@ class PairedFastqReader():
         sys.stderr.write("Total reads: {}\n".format(self.nread))
         sys.stderr.write("Mismatched barcodes: {}\n".format(self.nbad))
         sys.stderr.write("Written: {}\n".format(self.ngood))
+
+    def readMatches(self, patt1, patt2):
+        f1 = self.fq1.seq.find(patt1)
+        f2 = self.fq2.seq.find(patt2)
+        return f1 > -1 or f2 > -1
+
+    def grep(self, dm, filename1, filename2, patt1, patt2):
+        ngood = 0
+        nbad = 0
+        dm.openAll(filename1, filename2)
+        while True:
+            self.nextRead()
+            if not self.reader1.stream:
+                break
+            if self.readMatches(patt1, patt2):
+                bc = dm.findOrCreate("MATCH")
+                ngood += 1
+            else:
+                bc = dm.findOrCreate("MISMATCH")
+                nbad += 1
+            bc.writeRecord(self.fq1, self.fq2)
+        dm.closeAll()
+        sys.stderr.write("Total read pairs: {}\n".format(ngood+nbad))
+        sys.stderr.write("Matching read pairs: {}\n".format(ngood))
+        sys.stderr.write("Not matching read pairs: {}\n".format(nbad))
 
 ### Main
 
@@ -413,6 +502,21 @@ def main(args):
     elif P.mode == 'detect':
         fr = FastqReader(P.fqleft)
         fr.detect(P.ndetect, P.bclen)
+
+    elif P.mode == 'grep':
+        if P.rightTarget == None:
+            P.rightTarget = revcomp(P.leftTarget)
+        nameleft = getFastqBasename(P.fqleft)
+        if P.fqright:
+            nameright = getFastqBasename(P.fqright)
+        else:
+            nameright = None
+        bm = BarcodeMgr()
+        bm.add("MATCH", "MATCH")
+        bm.add("MISMATCH", "MISMATCH")
+
+        fr = PairedFastqReader(P.fqleft, P.fqright)
+        fr.grep(bm, nameleft, nameright, P.leftTarget, P.rightTarget)
         
 if __name__ == "__main__":
     args = sys.argv[1:]

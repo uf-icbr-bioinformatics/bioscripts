@@ -147,6 +147,16 @@ def linkify(url, text=None):
 
 ### Should this be here?
 
+def detectFileFormat(filename):
+    with genOpen(filename, "r") as f:
+        line = f.readline()
+        if len(line) > 0:
+            if line[0] == ">":
+                return "fasta"
+            elif line[0] == "@":
+                return "fastq"
+        return "?"
+
 def fastqcPath(basedir, f):
     base = os.path.split(f)[1]
     if base.endswith(".gz"):

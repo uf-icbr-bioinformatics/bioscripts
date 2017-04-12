@@ -22,8 +22,10 @@ Options:
   -db D  | Load gene database from sqlite3 file D
   -gff G | Load gene database from GFF file G
   -d N   | Upstream/downstream distance from gene for classification (default: {})
+  -f F   | Use format F in the region command, either `c' (for coordinates, e.g.
+           chr1:1000-1500) or `t' (tab-delimited). Default: {}
 
-""".format(Prog.distance))
+""".format(Prog.distance, Prog.oformat))
 
 ### Program object
 
@@ -32,6 +34,7 @@ class Prog(Script.Script):
     sourcetype = ""
     args = []
     distance = 2000
+    oformat = "c"
     gl = None                   # Gene list
 
     def parseArgs(self, args):
@@ -51,7 +54,10 @@ class Prog(Script.Script):
             elif next == '-d':
                 self.distance = P.toInt(a)
                 next = ""
-            elif a in ["-gff", "-db", "-d"]:
+            elif next == '-f':
+                self.oformat = a
+                next = ""
+            elif a in ["-gff", "-db", "-d", "-f"]:
                 next = a
             elif cmd:
                 self.args.append(a)
@@ -987,7 +993,10 @@ def main(args):
         for name in P.args:
             gene = P.gl.findGene(name)
             if gene:
-                sys.stdout.write("{}\t{}:{}-{}\n".format(name, gene.chrom, gene.start, gene.end))
+                if P.oformat == "c":
+                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, gene.start, gene.end, "+" if gene.strand == 1 else "-"))
+                elif P.oformat == "t":
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, gene.start, gene.end, name, "+" if gene.strand == 1 else "-"))
             else:
                 sys.stderr.write("No gene `{}'.\n".format(name))
     elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.

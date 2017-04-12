@@ -3,6 +3,7 @@
 import sys
 import pysam
 
+import Utils
 import Script
 
 def usage():
@@ -43,10 +44,12 @@ class BAMreader(object):
         self.aln = pysam.AlignmentFile(self.bamfile, "rb")
 
     def countAlignments(self):
-        sys.stderr.write("Counting alignments in {}... ".format(self.bamfile))
-        self.nalignments = self.aln.count(read_callback='all')
-        sys.stderr.write("done, {} alignments.\n".format(self.nalignments))
+        self.nalignments = Utils.countReadsInBAM(self.bamfile)
         return self.nalignments
+        # sys.stderr.write("Counting alignments in {}... ".format(self.bamfile))
+        # self.nalignments = self.aln.count(read_callback='all')
+        # sys.stderr.write("done, {} alignments.\n".format(self.nalignments))
+        # return self.nalignments
 
     def countAlignmentsInRegion(self, chrom, start, end):
         aiter = self.aln.fetch(chrom, start, end)
@@ -98,7 +101,7 @@ def parseArgs(args):
         elif a in ['-o', '-q']:
             next = a
         elif nra == 0:
-            B.setBamfile(P.isfile(a))
+            B.setBamfile(P.isFile(a))
             nra += 1
         elif nra == 1:
             bedfile = P.isFile(a)
