@@ -1029,10 +1029,10 @@ def main(args):
         if len(P.args) == 0:
             P.errmsg()
 
-        if args[0][0] == '@':
-            source = Utils.AtFileReader(args[0])
+        if P.args[0][0] == '@':
+            source = Utils.AtFileReader(P.args[0])
         else:
-            source = iter(args)
+            source = iter(P.args)
 
         for name in source:
             gene = P.gl.findGene(name)
