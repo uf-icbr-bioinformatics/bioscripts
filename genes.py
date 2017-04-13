@@ -21,11 +21,15 @@ Options:
 
   -db D  | Load gene database from sqlite3 file D
   -gff G | Load gene database from GFF file G
-  -d N   | Upstream/downstream distance from gene for classification (default: {})
+  -d N   | Upstream/downstream distance from gene for classify or region (default: {})
+  -dup N | Upstream distance from gene for classify or region (default: {})
+  -ddn N | Downstream distance from gene for classify or region (default: {})
+  -r R   | Desired gene region for `region' command; either `b' (gene body),
+           `u' (upstream), or `d' (downstream). Default: {}.
   -f F   | Use format F in the region command, either `c' (for coordinates, e.g.
-           chr1:1000-1500) or `t' (tab-delimited). Default: {}
+           chr1:1000-1500) or `t' (tab-delimited). Default: {}.
 
-""".format(Prog.distance, Prog.oformat))
+""".format(Prog.updistance, Prog.updistance, Prog.dndistance, Prog.regwanted, Prog.oformat))
 
 ### Program object
 
@@ -33,8 +37,10 @@ class Prog(Script.Script):
     source = None
     sourcetype = ""
     args = []
-    distance = 2000
+    updistance = 2000
+    dndistance = 2000
     oformat = "c"
+    regwanted = "b"             # Gene body by default
     gl = None                   # Gene list
 
     def parseArgs(self, args):
@@ -52,12 +58,25 @@ class Prog(Script.Script):
                 self.sourcetype = 'DB'
                 next = ""
             elif next == '-d':
-                self.distance = P.toInt(a)
+                self.updistance = P.toInt(a)
+                self.dndistance = self.updistance
+                next = ""
+            elif next == '-dup':
+                self.updistance = P.toInt(a)
+                next = ""
+            elif next == '-ddn':
+                self.dndistance = P.toInt(a)
                 next = ""
             elif next == '-f':
                 self.oformat = a
                 next = ""
-            elif a in ["-gff", "-db", "-d", "-f"]:
+            elif next == '-r':
+                if a in ['b', 'u', 'd']:
+                    self.regwanted = a
+                    next = ""
+                else:
+                    P.errmsg('BADREGION')
+            elif a in ["-gff", "-db", "-d", "-dup", "-ddn", "-f", "-r"]:
                 next = a
             elif cmd:
                 self.args.append(a)
@@ -65,7 +84,10 @@ class Prog(Script.Script):
                 cmd = a
         return cmd
 
-P = Prog("genes.py", version="1.0", usage=usage, errors=[('BADSRC', 'Missing gene database')])
+P = Prog("genes.py", version="1.0", usage=usage, 
+         errors=[('BADSRC', 'Missing gene database'),
+                 ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
+                 ('NOCMD', 'Missing command', "Please specify a command (either 'region', 'transcripts', or 'classify').") ])
 
 # Utils
 
@@ -646,6 +668,22 @@ class Gene():
                 result.append(c)
         return "".join(sorted(result))
 
+    def getRegion(self, params):
+        """Returns the region for this gene as (start, end) according to the 'regwanted', 
+'updistance, and 'dndistance' attributes in the `params' object."""
+        if params.regwanted == 'b':
+            return (self.start, self.end)
+        elif params.regwanted == 'u':
+            if self.strand == 1:
+                return (self.start - params.updistance, self.start - 1)
+            else:
+                return (self.end + 1, self.end + params.updistance)
+        elif params.regwanted == 'd':
+            if self.strand == 1:
+                return (self.end + 1, self.end + parms.dndistance)
+            else:
+                return (self.start - params.dndistance, self.start - 1)
+    
 class GeneLoader():
     gl = None
     filename = ""
@@ -990,13 +1028,20 @@ def main(args):
     if cmd == 'region':         # Print the region for the genes passed as arguments.
         if len(P.args) == 0:
             P.errmsg()
-        for name in P.args:
+
+        if args[0][0] == '@':
+            source = Utils.AtFileReader(args[0])
+        else:
+            source = iter(args)
+
+        for name in source:
             gene = P.gl.findGene(name)
             if gene:
+                (start, end) = gene.getRegion(P)
                 if P.oformat == "c":
-                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, gene.start, gene.end, "+" if gene.strand == 1 else "-"))
+                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
                 elif P.oformat == "t":
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, gene.start, gene.end, name, "+" if gene.strand == 1 else "-"))
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, name, "+" if gene.strand == 1 else "-"))
             else:
                 sys.stderr.write("No gene `{}'.\n".format(name))
     elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.

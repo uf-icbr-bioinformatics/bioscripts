@@ -110,12 +110,13 @@ def parseArgs(args):
             usage()
     if nra != 2:
         usage()
-    return B
+        return False
+    return True
 
 if __name__ == "__main__":
-    parseArgs(sys.argv[1:])
-    if outfile:
-        with open(outfile, "w") as out:
-            B.addCountsToBED(bedfile, out)
-    else:
-        B.addCountsToBED(bedfile, sys.stdout)
+    if parseArgs(sys.argv[1:]):
+        if outfile:
+            with open(outfile, "w") as out:
+                B.addCountsToBED(bedfile, out)
+        else:
+            B.addCountsToBED(bedfile, sys.stdout)

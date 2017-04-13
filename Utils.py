@@ -148,6 +148,9 @@ def linkify(url, text=None):
 ### Should this be here?
 
 def detectFileFormat(filename):
+    """Examine the first line of file `filename' and return "fasta" if
+it appears to be in FASTA format, "fastq" if it appears to be in fastq
+format, "?" otherwise."""
     with genOpen(filename, "r") as f:
         line = f.readline()
         if len(line) > 0:
@@ -165,6 +168,40 @@ def fastqcPath(basedir, f):
         base = base[:-6]
     target = basedir + base + "_fastqc.html"
     return linkify(target, text=base)
+
+### Reader a single column from a delimited file specified with the @filename:col notation.
+
+class AtFileReader():
+    filename = ""
+    stream = None
+    col = 0
+    ignorechar = '#'
+
+    def __init__(self, atspec, ignorechar='#'):
+        self.ignorechar = ignorechar
+        colonpos = atspec.rfind(":")
+        if colonpos > 0:
+            col = safeInt(atspec[colonpos+1:], False)
+            if col:
+                self.col = col - 1
+                self.filename = atspec[1:colonpos]
+        else:
+            self.filename = atspec[1:]
+        self.stream = genOpen(self.filename, "r")
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        while True:
+            line = self.stream.readline()
+            if line == '':
+                self.stream.close()
+                raise StopIteration
+            line = line.rstrip("\r\n")
+            if line[0] != self.ignorechar:
+                line = line.split("\t")
+                return line[self.col]
 
 ### Parser for GTF files
 ### *** (this should be replaced with the parsers in genplot/genes)
