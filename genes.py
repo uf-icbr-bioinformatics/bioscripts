@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 
 import sys
-import csv
 import sqlite3 as sql
 import Utils
 import Script
 
-def usage():
+def usage(what=None):
     sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
 
 Usage: genes.py [options] command command-arguments...
 
 where `command' can be one of:
+
   classify chrom:position - Classify the specified chromosome position according to 
                             the transcripts it falls in.
   region geneid           - Display the region for the gene identified by `geneid'.
@@ -28,6 +28,7 @@ Options:
            `u' (upstream), or `d' (downstream). Default: {}.
   -f F   | Use format F in the region command, either `c' (for coordinates, e.g.
            chr1:1000-1500) or `t' (tab-delimited). Default: {}.
+  -t     | List individual transcripts in classify command.
 
 """.format(Prog.updistance, Prog.updistance, Prog.dndistance, Prog.regwanted, Prog.oformat))
 
@@ -42,6 +43,7 @@ class Prog(Script.Script):
     oformat = "c"
     regwanted = "b"             # Gene body by default
     gl = None                   # Gene list
+    cltrans = False
 
     def parseArgs(self, args):
         cmd = None
@@ -78,10 +80,14 @@ class Prog(Script.Script):
                     P.errmsg('BADREGION')
             elif a in ["-gff", "-db", "-d", "-dup", "-ddn", "-f", "-r"]:
                 next = a
+            elif a == '-t':
+                self.cltrans = True
             elif cmd:
                 self.args.append(a)
             else:
                 cmd = a
+        if cmd not in ['region', 'transcripts', 'classify']:
+            P.errmsg('NOCMD')
         return cmd
 
 P = Prog("genes.py", version="1.0", usage=usage, 
@@ -137,23 +143,6 @@ def parseStartEnd(s):
         return (st, en, strand, None)
 
 # Classes
-
-class CSVreader():
-    _reader = None
-    ignorechar = '#'
-
-    def __init__(self, stream, delimiter='\t'):
-        self._reader = csv.reader(stream, delimiter=delimiter)
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        row = self._reader.next()
-        if len(row) == 0 or row[0][0] == self.ignorechar:
-            return self.next()
-        else:
-            return row
 
 class Genelist():
     chroms = []
@@ -215,9 +204,11 @@ class Genelist():
 
     def allGeneNames(self):
         result = []
+        print len(self.genes)
         for (chrom, cgenes) in self.genes.iteritems():
             for cg in cgenes:
                 result.append(cg.name)
+        print "{} genes returned".format(len(result))
         return result
 
     def findGene(self, name, chrom=None):
@@ -372,6 +363,13 @@ class Genelist():
 class GenelistDB(Genelist):
     conn = None                 # DB connection
     preloaded = False           # Did we preload all genes into the Genelist?
+
+    def allGeneNames(self):
+        curr = self.conn.cursor()
+        curr.execute("SELECT name FROM Genes ORDER BY name")
+        names = [ r[0] for r in curr.fetchall() ]
+        curr.close()
+        return names
 
     def findGene(self, name, chrom=None):
         gcur = self.conn.cursor()
@@ -550,30 +548,32 @@ smallrects and largerects lists."""
                     return True
         return False
 
-    def classifyPosition(self, pos, distance):
+    def classifyPosition(self, pos, updistance, dndistance):
         """Returns a single character that classifies position `pos' within this transcript.
 Possible return values are 'p' (up to `distance' bp upstream of the transcript), 'd'
 (up to `distance' bp downstream of the transcript), 'E' (in a coding exon), 'e' (in a
 non-coding exon), 'i' (in an intron)."""
-        if pos < self.txstart - distance or pos > self.txend + distance:
-            return False
-
-        if pos < self.txstart:
-            if self.strand == 1:
+        if self.txstart <= pos <= self.txend:
+            if self.posInExon(pos):
+                if self.cdsstart <= pos <= self.cdsend:
+                    return 'E'
+                else:
+                    return 'e'
+            return 'i'
+        elif self.strand == 1:
+            if self.txstart - updistance <= pos < self.txstart:
                 return 'p'
-            else:
-                return 'd'
-        if pos > self.txend:
-            if self.strand == 1:
+            elif self.txend < pos <= self.txend + dndistance:
                 return 'd'
             else:
-                return 'p'
-        if self.posInExon(pos):
-            if self.cdsstart <= pos <= self.cdsend:
-                return 'E'
+                return False
+        else:
+            if self.txstart - dndistance <= pos < self.txstart:
+                return 'd'
+            elif self.txend < pos <= self.txend + updistance:
+                return 'u'
             else:
-                return 'e'
-        return 'i'
+                return False
 
     def geneLimits(self, upstream, downstream, ref='B'):
         """Returns the start and end coordinates of a region extending from `upstream' bases
@@ -659,11 +659,11 @@ class Gene():
         else:
             self.end = transcript.txend
 
-    def classifyPosition(self, position, distance):
+    def classifyPosition(self, position, updistance, dndistance):
         """Returns a string containing all possible classifications of `position' for the transcript of this gene."""
         result = []
         for tr in self.transcripts:
-            c = tr.classifyPosition(position, distance)
+            c = tr.classifyPosition(position, updistance, dndistance)
             if c and c not in result:
                 result.append(c)
         return "".join(sorted(result))
@@ -671,18 +671,22 @@ class Gene():
     def getRegion(self, params):
         """Returns the region for this gene as (start, end) according to the 'regwanted', 
 'updistance, and 'dndistance' attributes in the `params' object."""
-        if params.regwanted == 'b':
-            return (self.start, self.end)
-        elif params.regwanted == 'u':
-            if self.strand == 1:
-                return (self.start - params.updistance, self.start - 1)
-            else:
-                return (self.end + 1, self.end + params.updistance)
-        elif params.regwanted == 'd':
-            if self.strand == 1:
-                return (self.end + 1, self.end + parms.dndistance)
-            else:
-                return (self.start - params.dndistance, self.start - 1)
+        #print self.name, self.start, self.end
+        if self.start and self.end:
+            if params.regwanted == 'b':
+                return (self.start, self.end)
+            elif params.regwanted == 'u':
+                if self.strand == 1:
+                    return (self.start - params.updistance, self.start + params.dndistance)
+                else:
+                    return (self.end - params.dndistance, self.end + params.updistance)
+            elif params.regwanted == 'd':
+                if self.strand == 1:
+                    return (self.end - params.updistance, self.end + parms.dndistance)
+                else:
+                    return (self.start - params.dndistance, self.start + params.updistance)
+        else:
+            return None
     
 class GeneLoader():
     gl = None
@@ -717,7 +721,7 @@ class refGeneLoader(GeneLoader):
     def _load(self):
         self.genes = {}
         with open(self.filename, "r") as f:
-            reader = CSVreader(f)
+            reader = Utils.CSVreader(f)
             for line in reader:
                 chrom = self.validateChrom(line[2])
                 if chrom:
@@ -817,7 +821,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
             self.gl.setNotWanted(notwanted)
 
         with open(filename, "r") as f:
-            reader = CSVreader(f)
+            reader = Utils.CSVreader(f)
             for line in f:
                 if line[6] == '+':
                     strand = 1
@@ -901,7 +905,7 @@ class GFFloader(GeneLoader):
             self.gl.setNotWanted(notwanted)
 
         with open(self.filename, "r") as f:
-            reader = CSVreader(f)
+            reader = Utils.CSVreader(f)
             for line in reader:
                 if len(line) < 8:
                     print "|"+line+"|"
@@ -1022,52 +1026,70 @@ def loadGenes(source, format):
     sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
     return gl
 
+def doRegion():
+    if len(P.args) == 0:
+        P.errmsg()
+
+    if P.args[0][0] == '@':
+        source = Utils.AtFileReader(P.args[0])
+    elif P.args[0] == "all":
+        source = P.gl.allGeneNames()
+    else:
+        source = P.args
+
+    for name in source:
+        gene = P.gl.findGene(name)
+        if gene:
+            reg = gene.getRegion(P)
+            if not reg:
+                continue
+            (start, end) = reg
+            if P.oformat == "c":
+                sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
+            elif P.oformat == "t":
+                sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
+        else:
+            sys.stderr.write("No gene `{}'.\n".format(name))
+
+def doTranscripts():
+    if len(P.args) == 0:
+        P.errmsg()
+    sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
+    for name in P.args:
+        gene = P.gl.findGene(name)
+        if gene:
+            for tx in gene.transcripts:
+                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(name, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
+        else:
+            sys.stderr.write("No gene `{}'.\n".format(name))
+
+def doClassify():
+    reg = parseRegion(P.args[0])
+    pos = reg[1]
+    maxd = max(P.updistance, P.dndistance)
+    genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+    if P.cltrans:
+        sys.stdout.write("Gene\tID\tAccession\tClass\n")
+        for g in genes:
+            for tr in g.transcripts:
+                c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+    else:
+        sys.stdout.write("Gene\tID\tClass\n")
+        for g in genes:
+            name = g.name
+            c = g.classifyPosition(pos, P.updistance, P.dndistance)
+            sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
+    
 def main(args):
     cmd = P.parseArgs(args)
     P.gl = loadGenes(P.source, P.sourcetype)
     if cmd == 'region':         # Print the region for the genes passed as arguments.
-        if len(P.args) == 0:
-            P.errmsg()
-
-        if P.args[0][0] == '@':
-            source = Utils.AtFileReader(P.args[0])
-        else:
-            source = iter(P.args)
-
-        for name in source:
-            gene = P.gl.findGene(name)
-            if gene:
-                (start, end) = gene.getRegion(P)
-                if P.oformat == "c":
-                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
-                elif P.oformat == "t":
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, name, "+" if gene.strand == 1 else "-"))
-            else:
-                sys.stderr.write("No gene `{}'.\n".format(name))
+        doRegion()
     elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.
-        if len(P.args) == 0:
-            P.errmsg()
-        sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
-        for name in P.args:
-            gene = P.gl.findGene(name)
-            if gene:
-                for tx in gene.transcripts:
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(name, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
-            else:
-                sys.stderr.write("No gene `{}'.\n".format(name))
+        doTranscripts()
     elif cmd == 'classify':  # Classify the given position (chr:pos) according to the transcripts it falls in
-        reg = parseRegion(P.args[0])
-        pos = reg[1]
-        genes = P.gl.allIntersecting(reg[0], pos - P.distance, pos + P.distance)
-        # sys.stdout.write("Gene\tID\tAccession\tClass\n")
-        sys.stdout.write("Gene\tID\tClass\n")
-        for g in genes:
-            name = g.name
-            c = g.classifyPosition(pos, P.distance)
-            sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
-            # for tr in g.transcripts:
-            #     c = tr.classifyPosition(pos, P.distance)
-            #     sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+        doClassify()
 
 if __name__ == "__main__":
     args = sys.argv[1:]

@@ -18,11 +18,15 @@ the line followed by two additional columns: the total coverage in the interval 
 its RPKM (number of reads in the interval in millions divided by the size of the 
 interval in kB).
 
+In vector mode (enabled with -w) the original columns of the `bedfile' are followed by
+the coverage values from `bamfile' for each region, in separate columns. 
+
 Options:
- -h         | print this usage message.
- -o outfile | write output to `outfile' (default: standard output)
- -q qual    | discard reads with quality score below `qual' (default: {})
- -z         | do not discard intervals with coverage of 0
+ -h         | Print this usage message.
+ -o outfile | Write output to `outfile' (default: standard output).
+ -q qual    | Discard reads with quality score below `qual' (default: {}).
+ -z         | Do not discard intervals with coverage of 0.
+ -w W       | Vector mode, using vector of length W.
 
 """.format(BAMreader.qual))
 
@@ -33,11 +37,13 @@ bedfile = None
 outfile = None
 
 class BAMreader(object):
+    mode = "normal"
     bamfile = None
     aln = None                  # Alignment object
     zeros = True
     qual = 10
     nalignments = 0
+    vectsize = 0
 
     def setBamfile(self, bamfile):
         self.bamfile = bamfile
@@ -46,10 +52,6 @@ class BAMreader(object):
     def countAlignments(self):
         self.nalignments = Utils.countReadsInBAM(self.bamfile)
         return self.nalignments
-        # sys.stderr.write("Counting alignments in {}... ".format(self.bamfile))
-        # self.nalignments = self.aln.count(read_callback='all')
-        # sys.stderr.write("done, {} alignments.\n".format(self.nalignments))
-        # return self.nalignments
 
     def countAlignmentsInRegion(self, chrom, start, end):
         aiter = self.aln.fetch(chrom, start, end)
@@ -61,22 +63,57 @@ class BAMreader(object):
 
     def addCountsToBED(self, bedfile, out, zeros=True):
         self.countAlignments()
-        rpkm_factor = 1000000000.0/self.nalignments
+        rpkm_factor = 1000000000.0 / self.nalignments
+        for parsed in Utils.CSVreader(bedfile):
+            start = int(parsed[1])
+            end = int(parsed[2])
+            rl = end-start
+            if rl > 0:
+                c = self.countAlignmentsInRegion(parsed[0], start, end)
+                rpkm = c * rpkm_factor / rl
+                if c > 0 or self.zeros:
+                    out.write("\t".join(parsed) + "\t" + str(c) + "\t" + str(rpkm) + "\n")
+
+    ### Vector mode
+
+    def addVectorToBED(self, bedfile, out):
+        self.countAlignments()
+        self.aln = pysam.AlignmentFile(self.bamfile, "rb")
+        hdr = True
+
         with open(bedfile, "r") as f:
-            for line in f:
-                line = line.rstrip("\r\n")
-                if len(line) > 0 and line[0] != '#':
-                    parsed = line.split("\t")
-                    start = int(parsed[1])
-                    end = int(parsed[2])
-                    c = self.countAlignmentsInRegion(parsed[0], start, end)
-                    rl = end-start
-                    if rl > 0:
-                        rpkm = c * rpkm_factor / rl
-                        if c > 0 or self.zeros:
-                            out.write(line + "\t" + str(c) + "\t" + str(rpkm) + "\n")
+            for parsed in Utils.CSVreader(f):
+                chrom   = parsed[0]
+                start   = int(parsed[1])
+                end     = int(parsed[2])
+                strand  = parsed[3]
+                regsize = end - start
+                vec     = self.getCovVector(chrom, start, end, regsize)
+                ovec    = [0] * self.vectsize
+                if self.vectsize > regsize:
+                    Utils.upsample(vec, regsize, ovec, self.vectsize)
                 else:
-                    out.write(line)
+                    Utils.subsample(vec, regsize, ovec, self.vectsize)
+                if hdr:
+                    out.write("Chrom\tStart\tEnd\tStrand\tGene")
+                    for i in range(self.vectsize):
+                        out.write("\t{}".format(i+1))
+                    out.write("\n")
+                    hdr = False
+                if strand == '-':
+                    ovec.reverse()
+                out.write("\t".join(parsed))
+                for v in ovec:
+                    out.write("\t" + str(v))
+                out.write("\n")
+
+    def getCovVector(self,chrom, start, end, regsize):
+        vector = [0]*regsize
+        for pc in self.aln.pileup(chrom, start, end):
+            pos = pc.pos - start
+            if pos >= 0 and pos < regsize:
+                vector[pos] = pc.n
+        return vector
 
 def parseArgs(args):
     global B
@@ -88,17 +125,19 @@ def parseArgs(args):
     P.standardOpts(args)
     B = BAMreader()
     for a in args:
-        if a == '-h':
-            usage()
-        elif next == '-o':
+        if next == '-o':
             outfile = a
             next = ''
         elif next == '-q':
             B.qual = P.toInt(a)
             next = ''
+        elif next == '-w':
+            B.mode = "vector"
+            B.vectsize = P.toInt(a)
+            next = ''
         elif a == '-z':
             B.zeros = False
-        elif a in ['-o', '-q']:
+        elif a in ['-o', '-q', '-w']:
             next = a
         elif nra == 0:
             B.setBamfile(P.isFile(a))
@@ -115,8 +154,15 @@ def parseArgs(args):
 
 if __name__ == "__main__":
     if parseArgs(sys.argv[1:]):
-        if outfile:
-            with open(outfile, "w") as out:
-                B.addCountsToBED(bedfile, out)
+        if B.mode == "vector":
+            if outfile:
+                with open(outfile, "w") as out:
+                    B.addVectorToBED(bedfile, out)
+            else:
+                B.addVectorToBED(bedfile, sys.stdout)
         else:
-            B.addCountsToBED(bedfile, sys.stdout)
+            if outfile:
+                with open(outfile, "w") as out:
+                    B.addCountsToBED(bedfile, out)
+            else:
+                B.addCountsToBED(bedfile, sys.stdout)

@@ -3,6 +3,8 @@
 
 import os
 import os.path
+import csv
+import math
 import gzip
 import time
 import pysam
@@ -42,6 +44,62 @@ def safeInt(v, default=None):
         return int(v)
     except:
         return default
+
+def _parseColspecAux(cs):
+    p = cs.find("+")
+    m = cs.find("-")
+    if p == 0:
+        v = safeInt(cs[1:])
+        if v:
+            return ("+", 1, v)
+        else:
+            return False
+    elif m == 0:
+        v = safeInt(cs[1:])
+        if v:
+            return ("-", 1, v)
+        else:
+            return False
+    elif p > 0:
+        w = "+"
+        x = p
+    elif m > 0:
+        w = "-"
+        x = m
+    else:
+        v = safeInt(cs)
+        if v:
+            return ("*", v)
+        else:
+            return False
+
+    a = safeInt(cs[:x])
+    b = safeInt(cs[x+1:])
+    if a and b:
+        return (w, a, b)
+    else:
+        return False
+
+def parseColspec(s):
+    """Parse a specification for a set of columns. `s' has the form C1,C2,...,Cn
+where each C can be either a number (1-based column number), X-Y (from column X to
+column Y inclusive), X+K (K columns starting at X)."""
+    cols = []
+    specs = s.split(",")
+    for cs in specs:
+        p = _parseColspecAux(cs)
+        if p:
+            if p[0] == "+":
+                for i in range(p[1], p[1]+p[2]+1):
+                    cols.append(i-1)
+            elif p[0] == "-":
+                for i in range(p[1], p[2]+1):
+                    cols.append(i-1)
+            elif p[0] == "*":
+                cols.append(p[1]-1)
+        else:
+            sys.stderr.write("Incorrect field specification `{}'.\n".format(cs))
+    return cols
 
 def safeReadIntFromFile(filename, default=None, maxtries=20, delay=1):
     """Read an integer from the first line of file `filename', using `default' if the
@@ -169,7 +227,26 @@ def fastqcPath(basedir, f):
     target = basedir + base + "_fastqc.html"
     return linkify(target, text=base)
 
-### Reader a single column from a delimited file specified with the @filename:col notation.
+### Smart CSV reader
+
+class CSVreader():
+    _reader = None
+    ignorechar = '#'
+
+    def __init__(self, stream, delimiter='\t'):
+        self._reader = csv.reader(stream, delimiter=delimiter)
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        row = self._reader.next()
+        if len(row) == 0 or row[0][0] == self.ignorechar:
+            return self.next()
+        else:
+            return row
+
+### Read a single column from a delimited file specified with the @filename:col notation.
 
 class AtFileReader():
     filename = ""
@@ -488,3 +565,59 @@ allButtonPair on
 
     def endContainer(self):
         self.parent = ""
+
+### Subsample (store a long vector into a short one)
+
+def subsample(vec1, size1, vec2, size2):
+    """Store the contents of vec1, of size size1, into vector vec2
+of size size2, with size2 < size1. vec2 should be initialized to 0."""
+    s = 1.0 * size1 / size2
+    i1 = 0
+
+    for i2 in range(size2):
+        (fr, wh) = math.modf(s * (i2+1))
+        # print "i2={}, wh={}, fr={}".format(i2, wh, fr)
+        while i1 < wh:
+            vec2[i2] += vec1[i1]
+            i1 += 1
+        if i1 == size1:
+            break
+        vec2[i2] += vec1[i1] * fr
+        if i2+1 < size2:
+            vec2[i2+1] += vec1[i1] * (1-fr)
+        i1 += 1
+    return vec2
+
+def upsample(vec1, size1, vec2, size2):
+    """Store the contents of vec1, of size size1, into vector vec2
+of size size2, with size2 > size1. vec2 should be initialized to 0."""
+    s = 1.0 * size1 / size2
+    w = 1.0 / s
+    print "s={}, w={}".format(s, w)
+    i2 = 0
+    
+    for i1 in range(size1):
+        (fr, wh) = math.modf(w * (i1+1))
+        # print "i1={}, i2={}, wh={}, fr={}".format(i1, i2, wh, fr)
+        while i2 < wh:
+            # print "v1[{}] * {} => v2[{}]".format(i1, s, i2)
+            vec2[i2] += vec1[i1] * s
+            i2 += 1
+        if i2 == size2:
+            break
+        # print "v1[{}] * {} * {} => v2[{}]".format(i1, s, fr, i2)
+        vec2[i2] += vec1[i1] * s * fr
+        # print "v1[{}] * {} * {} => v2[{}]".format(i1+1, s, 1-fr, i2)
+        vec2[i2] += vec1[i1+1] * s * (1-fr)
+        i2 += 1
+    return vec2
+
+def test():
+#    vec1 = [1,3,12,4,1,7,22,15,3]
+#    vec2 = [0,0,0,0]
+    vec1 = [1,1,1]
+    vec2 = [0,0,0]
+    print sum(vec1)
+    x = upsample(vec1, len(vec1), vec2, len(vec2))
+    print sum(x)
+    return x

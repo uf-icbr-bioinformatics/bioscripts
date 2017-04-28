@@ -112,6 +112,8 @@ and the following one (if any). Otherwise, returns None."""
             self.errmsg(self.BADFLOAT, x)
         
     def isFile(self, x):
+        if x == "-":
+            return x
         if os.path.isfile(x):
             return x
         else:

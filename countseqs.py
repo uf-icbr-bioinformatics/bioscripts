@@ -11,7 +11,7 @@ __doc__ = """This is doc."""
 ### Program definition
 
 def usage():
-    sys.stderr.write("""countseqs.py - Count sequences in fastq files.
+    sys.stderr.write("""countseqs.py - Count sequences in fasta/fastq files.
 
 Usage: countseqs.py [-h] [-m] [-t] [-o outfile] files...
 

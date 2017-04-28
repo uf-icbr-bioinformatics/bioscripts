@@ -10,6 +10,7 @@ def usage():
 
 Usage: demux.py detect [options] fastq
        demux.py split [options] fastq1 [fastq2]
+       demux.py grep [options] fastq1 [fastq2]
 
 The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
 the input file is assumed to be in fastq format and the barcodes are extracted from 

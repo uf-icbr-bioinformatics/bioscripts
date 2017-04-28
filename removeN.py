@@ -11,6 +11,11 @@ file `infile'. Output is written to standard output or to `outfile' if
 specified, in FASTA format. The -l option specifies the line length of the 
 resulting output file.
 
+In `clean' mode (enabled with -c), removes from output all sequences with
+an excessive number of gaps (-). The decision whether to remove a sequence 
+is controlled by the two parameters -s (length of longest allowed stretch
+of '-') and -f (highest allowed fraction of - vs sequence length).
+
 Usage: removeN.py [options] infile
 
 Options:

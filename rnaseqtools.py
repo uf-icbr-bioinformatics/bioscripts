@@ -17,6 +17,7 @@ __doc__ = """Reimplementation of RSEM's rsem-generate-data-matrix that also hand
 # 2. merge multiple Diff files into matrix for heatmap
 
 import sys
+import csv
 import math
 import ercc
 import os.path
@@ -51,6 +52,19 @@ labels into two single files. Options:
 
 """.format(progname))
 
+    elif what == 'sort':
+        sys.stderr.write("""Usage: {} sort [options] filename
+
+Sort items from `filename' according to the average value(s) in one or
+more specified columns. Options:
+
+  -o F          | Write output to file F (default: stdout).
+  -i I          | Identifiers are in column I (default: {}).
+  -c C1,C2, ... | Values are in columns C1, C2, etc.
+  -t T          | Output only the top T % of genes (default: {}).
+
+""".format(progname, GeneSorter.idcol + 1, GeneSorter.topperc))
+
     else:
         sys.stderr.write("""Usage: {} command [args...]
 
@@ -59,13 +73,14 @@ where command is one of:
 matrix - combine multiple .genes.results or .isoforms.results into a single data matrix
 merge  - merge multiple .gfdr.csv or .ifdr.csv files into a single matrix
 allexp - merge multiple .gmatrix.csv files into a single matrix
+sort   - sort genes from input file according to values in specified columns
 
 Call with command and no arguments to get help about a specific command.
 
 """.format(progname))
 
-S = Script.Script("dmaptools.py", version="1.0", usage=usage,
-                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, matrix.')])
+S = Script.Script("rnaseqtools.py", version="1.0", usage=usage,
+                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, matrix, allexp, sort.')])
 
 # Utils
 
@@ -110,9 +125,34 @@ class MatrixGenerator():
         self.column = "expected_count"
         self.colidx = 4
 
-    def setFiles(self, infiles):
-        self.infiles = infiles
-        self.ncols = len(infiles)
+    def parseArgs(self, args):
+        files = []
+        e = False
+        ercc = None
+        mix = []
+        next = ""
+        for a in args:
+            if a == '-e':
+                e = True
+            elif next == '-c':
+                self.column = a
+                next = ""
+            elif next == '-ercc':
+                ercc = a
+                next = ""
+            elif next == '-mix':
+                mix = a
+                next = ""
+            elif a in ['-ercc', '-mix', '-c']:
+                next = a
+            else:
+                files.append(S.isFile(a))
+        if files == []:
+            S.usage(cmd)
+        self.infiles = files
+        self.ncols = len(files)
+        if e:
+            self.initERCC(mix, ERCCfile=ercc)
 
     def initERCC(self, mixes=[], ERCCfile=None):
         """This method is called if we want ERCC normalization done before writing the
@@ -293,7 +333,25 @@ class DiffMerger():
         self.rows = []
         self.nrows = 0
 
-    def setLabels(self, labels):
+    def parseArgs(self, args):
+        labels = []
+        next = ""
+        for a in args:
+            if next == '-gout':
+                self.gmerged = a
+                next = ""
+            elif next == '-cout':
+                self.cmerged = a
+                next = ""
+            elif next == '-iout':
+                self.imerged = a
+                next = ""
+            elif a in ['-gout', '-cout', '-iout']:
+                next = a
+            else:
+                labels.append(a)
+        if labels == []:
+            S.usage(cmd)
         self.labels = labels
         self.ncols = len(labels)
 
@@ -396,6 +454,19 @@ class ExpMerger():
         self.labels = []
         self.table = {}
 
+    def parseArgs(self, args):
+        next = ""
+        for a in args:
+            if next == '-o':
+                self.outfile = a
+                next = ""
+            elif a == '-o':
+                next = a
+            else:
+                self.filenames.append(S.isFile(a))
+        if self.filenames == []:
+            S.usage("merge")
+
     def readOneFile(self, filename):
         sys.stderr.write("Reading {}... ".format(filename))
         with open(filename, "r") as f:
@@ -437,77 +508,109 @@ class ExpMerger():
         else:
             self.writeAllExp(sys.stdout)
 
+### GeneSorter
+
+class GeneSorter():
+    filename = None
+    outfile  = None              # -o option
+    idcol    = 0                 # -i option
+    valcols  = []                # -c option
+    topperc  = 100.0             # -t option
+    nd       = 0                 # number of values read
+
+    def __init__(self):
+        self.valcols = []
+
+    def parseArgs(self, args):
+        next = ""
+
+        for a in args:
+            if next == "-o":
+                self.outfile = a
+                next = ""
+            elif next == "-i":
+                self.idcol = S.toInt(a) - 1
+                next = ""
+            elif next == "-c":
+                self.valcols = Utils.parseColspec(a)
+                next = ""
+            elif next == "-t":
+                self.topperc = S.toFloat(a)
+                next = ""
+            elif a in ["-o", "-i", "-c", "-t"]:
+                next = a
+            else:
+                self.filename = S.isFile(a)
+        self.nvals = len(self.valcols)
+        if not self.filename:
+            S.usage("sort")
+
+    def getAvgValue(self, row):
+        """Returns the average of the values indexed by valcols in `row',
+ignoring out of bounds errors and fields that don't contain numbers."""
+        v = 0
+        n = 0
+        for c in self.valcols:
+            try:
+                v += float(row[c])
+                n += 1
+            except ValueError, IndexError:
+                pass
+        if n == 0:
+            return 0
+        else:
+            return v/n
+
+    def doSort(self, out):
+        data = []
+        self.nd = 0
+        f = None
+        try:
+            if self.filename == "-":
+                f = sys.stdin
+            else:
+                f = open(self.filename, "r")
+            for row in csv.reader(f, delimiter="\t"):
+                if len(row) > 0 and len(row[0]) > 0 and row[0][0] != "#":
+                    a = self.getAvgValue(row)
+                    data.append( (a, row[self.idcol]) )
+                    self.nd += 1
+        finally:
+            if f:
+                f.close()
+        data.sort(key=lambda r: r[0], reverse=True)
+
+        toWrite = round(self.nd * self.topperc / 100.0)
+        for d in data:
+            if toWrite == 0:
+                break
+            out.write("{}\t{}\n".format(d[1], d[0]))
+            toWrite -= 1
+
+    def run(self):
+        sys.stderr.write("Averaging columns {} from file {}\n".format(", ".join([str(c) for c in self.valcols]), self.filename))
+        sys.stderr.write("Gene IDs in column {}\n".format(self.idcol))
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.doSort(out)
+        else:
+            self.doSort(sys.stdout)
+    
+### Main
+
 def parseArgs(cmd, args):
     if cmd == 'matrix':
         P = MatrixGenerator()
-        files = []
-        e = False
-        ercc = None
-        mix = []
-        next = ""
-        for a in args:
-            if a == '-e':
-                e = True
-            elif next == '-c':
-                P.column = a
-                next = ""
-            elif next == '-ercc':
-                ercc = a
-                next = ""
-            elif next == '-mix':
-                mix = a
-                next = ""
-            elif a in ['-ercc', '-mix', '-c']:
-                next = a
-            else:
-                files.append(a)
-        if files == []:
-            return usage(cmd)
-        P.setFiles(files)
-        if e:
-            P.initERCC(mix, ERCCfile=ercc)
-        return P
-
     elif cmd == 'merge':
         P = DiffMerger()
-        labels = []
-        next = ""
-        for a in args:
-            if next == '-gout':
-                P.gmerged = a
-                next = ""
-            elif next == '-cout':
-                P.cmerged = a
-                next = ""
-            elif next == '-iout':
-                P.imerged = a
-                next = ""
-            elif a in ['-gout', '-cout', '-iout']:
-                next = a
-            else:
-                labels.append(a)
-        if labels == []:
-            return usage(cmd)
-        else:
-            P.setLabels(labels)
-            return P
     elif cmd == 'allexp':
         P = ExpMerger()
-        filenames = []
-        next = ""
-        for a in args:
-            if next == '-o':
-                P.outfile = a
-                next = ""
-            elif a == '-o':
-                next = a
-            else:
-                filenames.append(S.isFile(a))
-        P.filenames = filenames
-        return P
-
+    elif cmd == 'sort':
+        P = GeneSorter()
     else:
-        return usage()
+        return S.usage()
+    P.parseArgs(args)
+    return P
 
 if __name__ == "__main__":
     args = sys.argv[1:]
