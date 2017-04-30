@@ -80,6 +80,7 @@ class BAMreader(object):
         self.countAlignments()
         self.aln = pysam.AlignmentFile(self.bamfile, "rb")
         hdr = True
+        res = Utils.Resampler(1, self.vectsize)
 
         with open(bedfile, "r") as f:
             for parsed in Utils.CSVreader(f):
@@ -89,11 +90,9 @@ class BAMreader(object):
                 strand  = parsed[3]
                 regsize = end - start
                 vec     = self.getCovVector(chrom, start, end, regsize)
-                ovec    = [0] * self.vectsize
-                if self.vectsize > regsize:
-                    Utils.upsample(vec, regsize, ovec, self.vectsize)
-                else:
-                    Utils.subsample(vec, regsize, ovec, self.vectsize)
+                res.init(regsize, self.vectsize)
+                ovec    = res.resample(vec)
+
                 if hdr:
                     out.write("Chrom\tStart\tEnd\tStrand\tGene")
                     for i in range(self.vectsize):

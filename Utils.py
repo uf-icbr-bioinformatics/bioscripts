@@ -10,6 +10,7 @@ import time
 import pysam
 import string
 import random
+import fractions
 import subprocess
 
 def genOpen(filename, mode):
@@ -42,7 +43,13 @@ def id_generator(size=6, chars=string.ascii_uppercase + string.digits, prefix=''
 def safeInt(v, default=None):
     try:
         return int(v)
-    except:
+    except ValueError:
+        return default
+
+def safeFloat(v, default=None):
+    try:
+        return float(v)
+    except ValueError:
         return default
 
 def _parseColspecAux(cs):
@@ -566,58 +573,43 @@ allButtonPair on
     def endContainer(self):
         self.parent = ""
 
-### Subsample (store a long vector into a short one)
+### resample (store a long vector into a short one, or vice-versa)
 
-def subsample(vec1, size1, vec2, size2):
-    """Store the contents of vec1, of size size1, into vector vec2
-of size size2, with size2 < size1. vec2 should be initialized to 0."""
-    s = 1.0 * size1 / size2
-    i1 = 0
+class Resampler():
+    size1 = 0
+    size2 = 0
+    steps = 0
+    p = 0.0
+    q = 0.0
+    vec2 = []
 
-    for i2 in range(size2):
-        (fr, wh) = math.modf(s * (i2+1))
-        # print "i2={}, wh={}, fr={}".format(i2, wh, fr)
-        while i1 < wh:
-            vec2[i2] += vec1[i1]
-            i1 += 1
-        if i1 == size1:
-            break
-        vec2[i2] += vec1[i1] * fr
-        if i2+1 < size2:
-            vec2[i2+1] += vec1[i1] * (1-fr)
-        i1 += 1
-    return vec2
+    def __init__(self, size1, size2):
+        self.init(size1, size2)
 
-def upsample(vec1, size1, vec2, size2):
-    """Store the contents of vec1, of size size1, into vector vec2
-of size size2, with size2 > size1. vec2 should be initialized to 0."""
-    s = 1.0 * size1 / size2
-    w = 1.0 / s
-    print "s={}, w={}".format(s, w)
-    i2 = 0
-    
-    for i1 in range(size1):
-        (fr, wh) = math.modf(w * (i1+1))
-        # print "i1={}, i2={}, wh={}, fr={}".format(i1, i2, wh, fr)
-        while i2 < wh:
-            # print "v1[{}] * {} => v2[{}]".format(i1, s, i2)
-            vec2[i2] += vec1[i1] * s
-            i2 += 1
-        if i2 == size2:
-            break
-        # print "v1[{}] * {} * {} => v2[{}]".format(i1, s, fr, i2)
-        vec2[i2] += vec1[i1] * s * fr
-        # print "v1[{}] * {} * {} => v2[{}]".format(i1+1, s, 1-fr, i2)
-        vec2[i2] += vec1[i1+1] * s * (1-fr)
-        i2 += 1
-    return vec2
+    def init(self, size1, size2):
+        if size1 == 0 or size2 == 0:
+            raise ValueError("Resampler cannot handle 0-length vectors!")
+        self.size1 = size1
+        self.size2 = size2
+        self.steps = (size1 * size2)
+        self.p = fractions.Fraction(1, size1)
+        self.q = fractions.Fraction(1, size2)
+        self.vec2 = []
+
+    def resample(self, vec1):
+        self.vec2 = [0.0]*self.size2
+
+        for i in range(self.steps):
+            wh1 = int(i * self.q)
+            wh2 = int(i * self.p)
+            #print "{} => {} ({})".format(wh1, wh2, i * self.q)
+            #print "vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2))
+            self.vec2[int(wh2)] += vec1[int(wh1)] * self.q
+        return self.vec2
 
 def test():
-#    vec1 = [1,3,12,4,1,7,22,15,3]
-#    vec2 = [0,0,0,0]
-    vec1 = [1,1,1]
-    vec2 = [0,0,0]
-    print sum(vec1)
-    x = upsample(vec1, len(vec1), vec2, len(vec2))
-    print sum(x)
-    return x
+    r = Resampler(9,3)
+    v = range(9)
+    print v
+    return r.resample(v)
+    #return r.resample([1,1,1])
