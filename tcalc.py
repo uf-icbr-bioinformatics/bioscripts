@@ -105,6 +105,10 @@ class Driver():
     bindings = {}
     variables = {}
 
+    # Default terms
+    printTerm = None
+    returnTerm = None
+
     def __init__(self):
         self.terms = []
         self.bindings = {}
@@ -123,10 +127,15 @@ class Driver():
                 mode = w
             elif mode == "filter":
                 self.addTerm(FilterTerm(w))
+            elif mode == "print":
+                if self.printTerm == None:
+                    pt = PrintTerm(w)
+                    self.addTerm(pt)
+                    self.printTerm = pt
+                else:
+                    pt.addVariable(w)
             elif mode == "set":
                 self.addTerm(SetTerm(w))
-            elif mode == "print":
-                self.addTerm(PrintTerm(w))
             
     def execute(self):
         for term in self.terms:

@@ -52,6 +52,21 @@ def safeFloat(v, default=None):
     except ValueError:
         return default
 
+def distance(v1, v2):
+    """Euclidean distance between vectors v1 and v2."""
+    def dsq(a, b):
+        if a == None or b == None:
+            return 0
+        d = a - b
+        return d*d
+
+    return math.sqrt(sum([dsq(*p) for p in zip(v1, v2)] ))
+
+def colsToFloat(row, columns):
+    """Returns a list containing the elements of `row' indexed by `columns' converted to floats.
+Invalid entries are returned as None."""
+    return [ safeFloat(row[c]) for c in columns ]
+
 def _parseColspecAux(cs):
     p = cs.find("+")
     m = cs.find("-")
@@ -524,6 +539,22 @@ type bigWig
 autoScale on
 """.format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)), options=options)
 
+    def addBigWig(self, filename, name, shortLabel, longLabel, **options):
+        bname = self.getBasename(filename)
+        bw = bname + ".bw"
+        bwpath = self.dirname + "/" + self.genome + "/" + bw
+        if self.missingOrStale(bwpath, filename):
+            self.shell("cp {} {}", filename, bwpath)
+
+        with open(self.trackDbPath, "a") as out:
+            self.writeStanza(out, """track {}
+{}bigDataUrl {}
+shortLabel {}
+longLabel {}
+type bigWig
+autoScale on
+""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)), options=options)
+
     def addBedGraph(self, filename, name, shortLabel, longLabel):
         bname = self.getBasename(filename)
         bw = name + ".bw"
@@ -581,30 +612,57 @@ class Resampler():
     steps = 0
     p = 0.0
     q = 0.0
-    vec2 = []
+    vmap = []
+    idxs1 = []
+    idxs2 = []
+    vec2  = []
+    prev1 = -1
+    prev2 = -1
 
     def __init__(self, size1, size2):
         self.init(size1, size2)
 
     def init(self, size1, size2):
+        # print "Init, {}, {}".format(size1, size2)
         if size1 == 0 or size2 == 0:
             raise ValueError("Resampler cannot handle 0-length vectors!")
+        if size1 == self.prev1 and size2 == self.prev2: # If sizes are unchanged...
+            return                                      # No need to do anything.
         self.size1 = size1
         self.size2 = size2
+        self.p = 1.0 / size1
+        self.q = 1.0 / size2
         self.steps = (size1 * size2)
-        self.p = fractions.Fraction(1, size1)
-        self.q = fractions.Fraction(1, size2)
+        self.vmap = []
+        current = [-1, -1, 0]
+        for i in range(self.steps):
+            idx1 = int(i * self.q)
+            idx2 = int(i * self.p)
+            if idx1 == current[0] and idx2 == current[1]:
+                current[2] += self.q
+            else:
+                current = [idx1, idx2, self.q]
+                self.vmap.append(current)
+        # print "Initialized vmap, length={}".format(len(self.vmap))
+        # self.idxs1 = [ int(i * self.q) for i in range(self.steps) ]
+        # self.idxs2 = [ int(i * self.p) for i in range(self.steps) ]
+        # print self.idxs1
+        # print self.idxs2
         self.vec2 = []
+        self.prev1 = size1
+        self.prev2 = size2
 
     def resample(self, vec1):
         self.vec2 = [0.0]*self.size2
 
-        for i in range(self.steps):
-            wh1 = int(i * self.q)
-            wh2 = int(i * self.p)
-            #print "{} => {} ({})".format(wh1, wh2, i * self.q)
-            #print "vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2))
-            self.vec2[int(wh2)] += vec1[int(wh1)] * self.q
+        for m in self.vmap:
+            self.vec2[m[1]] = vec1[m[0]] * m[2]
+
+        # for i in range(self.steps):
+            # print "{} => {} ({})".format(wh1, wh2, i * self.q)
+            # print "vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2))
+            # print "{} {} {}".format(i, self.idxs2[i], self.idxs1[i])
+            # self.vec2[self.idxs2[i]] += vec1[self.idxs1[i]] * self.q
         return self.vec2
 
 def test():
