@@ -52,6 +52,17 @@ def safeFloat(v, default=None):
     except ValueError:
         return default
 
+def convertValue(v):
+    """Convert v to an int if possible, otherwise to
+a float, otherwise return it unchanged."""
+    try:
+        return int(v)
+    except ValueError:
+        try:
+            return float(v)
+        except ValueError:
+            return v
+
 def distance(v1, v2):
     """Euclidean distance between vectors v1 and v2."""
     def dsq(a, b):

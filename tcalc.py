@@ -3,23 +3,32 @@
 import sys
 import csv
 import ast
+import math
 import gzip
-import os.path
-
-### Utils
-
-def convertValue(v):
-    try:
-        return int(v)
-    except ValueError:
-        try:
-            return float(v)
-        except ValueError:
-            return v
+from Utils import genOpen, convertValue
 
 ### filter C1=I set f=C1+C2 return avg(f)
 ### set f=C1+C2 print C1 C2 f
 
+### Exceptions
+
+class SkipEntry(Exception):
+    pass
+
+### Functions
+
+ACTIVE = None
+
+def FUNC(value):
+    ACTIVE.perform(value)
+
+SUM = FUNC
+ADD = FUNC
+AVG = FUNC
+MEAN = FUNC
+STDEV = FUNC
+
+### Terms
 
 class Term():
     termtype = "term"
@@ -47,6 +56,11 @@ class FilterTerm(Term):
     def dump(self):
         return "IF " + self.source
 
+    def execute(self):
+        f = eval(self.code, globals(), self.parent.bindings)
+        if not f:
+            raise SkipEntry
+
 class SetTerm(Term):
     termtype = "set"
     varname = ""
@@ -73,17 +87,24 @@ class PrintTerm(Term):
     variables = []
 
     def init(self, source):
-        self.variables = [ s.strip(" \t") for s in source.split(",") ]
-        print self.variables
+        self.addVariables(source)
+    
+    def addVariables(self, vars):
+        for v in [ s.strip(" \t") for s in vars.split(",") ]:
+            self.variables.append(v)
 
     def execute(self):
         out = self.parent.out
         bdg = self.parent.bindings
+        bdg['CM'] += 1
         out.write(str(bdg[self.variables[0]]))
         for v in self.variables[1:]:
             out.write("\t")
             out.write(str(bdg[v]))
         out.write("\n")
+
+    def dump(self):
+        return "PRINT " + ",".join(self.variables)
 
 class ReturnTerm(Term):
     termtype = "return"
@@ -95,10 +116,79 @@ class ReturnTerm(Term):
     def dump(self):
         return "DO " + self.source
 
+class SumTerm(ReturnTerm):
+    sum = 0
+
+    def execute(self):
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, value):
+        #sys.stderr.write("Adding {}\n".format(value))
+        if not type(value).__name__ == 'str':
+            self.sum += value
+
+    def result(self):
+        return self.sum
+
+class AvgTerm(ReturnTerm):
+    sum = 0
+    nvals = 0
+
+    def execute(self):
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, value):
+        if not type(value).__name__ == 'str':
+            self.sum += value
+            self.nvals += 1
+
+    def result(self):
+        return 1.0*self.sum/self.nvals
+        
+class StdevTerm(ReturnTerm):
+    sum = 0
+    sumsq = 0
+    nvals = 0
+
+    def execute(self):
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, value):
+        if not type(value).__name__ == 'str':
+            self.sum += value
+            self.sumsq += value * value
+            self.nvals += 1
+
+    def result(self):
+        e = 1.0 * self.sum / self.nvals
+        return math.sqrt((1.0 * self.sumsq / self.nvals) - (e * e))
+        
+TERMMAP = [ ('SUM', SumTerm),
+            ('ADD', SumTerm),
+            ('AVG', AvgTerm),
+            ('MEAN', AvgTerm),
+            ('STDEV', StdevTerm) ]
+
+def funcToTerm(source):
+    global TERMMAP
+    for tm in TERMMAP:
+        if source.startswith(tm[0]):
+            return tm[1]
+    return None
+
 ### Driver object
 
 class Driver():
+    src = sys.stdin
     out = sys.stdout
+    infile = None
+    outfile = None
     ncols = None
     colnames = None
     terms = []
@@ -107,11 +197,53 @@ class Driver():
 
     # Default terms
     printTerm = None
-    returnTerm = None
+    returnTerms = []
+
+    # Debugging
+    dumpRecipe = False
 
     def __init__(self):
         self.terms = []
-        self.bindings = {}
+        self.bindings = {'CN': 0, 'CM':0}
+        self.returnTerms = []
+
+    def parseArgs(self, args):
+        na = 0
+        next = ""
+        for a in args:
+            if next == "-n":
+                self.setNcols(int(a))
+                next = ""
+            elif a in ["-n"]:
+                next = a
+            elif a == '-d':
+                self.dumpRecipe = True
+            elif na == 0:
+                if a[0] == '@':
+                    with open(a[1:], 'r') as f:
+                        rec = f.read()
+                else:
+                    rec = a
+                self.parseRecipe(rec)
+                na += 1
+            elif na == 1:
+                self.infile = a
+                na += 1
+            elif na == 2:
+                self.outfile = a
+                na += 1
+
+    def initialize(self):
+        if self.infile:
+            self.src = genOpen(self.infile, "r")
+        if self.outfile:
+            self.out = open(self.outfile, "w")
+
+    def cleanup(self):
+        if self.infile:
+            self.src.close()
+        if self.outfile:
+            self.out.close()
 
     def addTerm(self, term):
         term.parent = self
@@ -123,19 +255,31 @@ class Driver():
         words = recipe.split()
         mode = ""
         for w in words:
-            if w in ["filter", "set", "print"]:
+            if w in ["filter", "if", "set", "print", "do", "return"]:
                 mode = w
-            elif mode == "filter":
+            elif mode == "filter" or mode == "if":
+                # sys.stderr.write("Adding FILTER term `{}'\n".format(w))
                 self.addTerm(FilterTerm(w))
+            elif mode == "set":
+                # sys.stderr.write("Adding SET term `{}'\n".format(w))
+                self.addTerm(SetTerm(w))
             elif mode == "print":
                 if self.printTerm == None:
+                    # sys.stderr.write("Adding PRINT term `{}'\n".format(w))
                     pt = PrintTerm(w)
                     self.addTerm(pt)
                     self.printTerm = pt
                 else:
-                    pt.addVariable(w)
-            elif mode == "set":
-                self.addTerm(SetTerm(w))
+                    # sys.stderr.write("Adding variable to PRINT term `{}'\n".format(w))
+                    pt.addVariables(w)
+            elif mode == "do" or mode == "return":
+                cls = funcToTerm(w)
+                if cls:
+                    rt = cls(w)
+                    self.addTerm(rt)
+                    self.returnTerms.append(rt)
+                else:
+                    sys.stderr.write("Warning: no function found in term `{}'.\n".format(w))
             
     def execute(self):
         for term in self.terms:
@@ -151,13 +295,34 @@ to their numeric representation if possible."""
         for colname, val in zip(self.colnames, row):
             self.bindings[colname] = convertValue(val)
 
+    def processAllRows(self):
+        f = csv.reader(self.src, delimiter='\t')
+        for row in f:
+            if row[0][0] == '#':
+                continue
+            if not self.ncols:
+                self.setNcols(len(row))
+            self.bindings['CN'] += 1
+            try:
+                self.processRow(row)
+            except SkipEntry:
+                pass
+
     def processRow(self, row):
         self.bindColumnValues(row)
         self.execute()
 
+    def printReturns(self):
+        if len(self.returnTerms) > 0:
+            self.out.write("\t".join([rt.source for rt in self.returnTerms]) + "\n")
+            results = [str(rt.result()) for rt in self.returnTerms]
+            self.out.write("\t".join(results) + "\n")
+
     def dump(self):
+        sys.stderr.write("*** Recipe dump:\n")
         for term in self.terms:
-            print term.dump()
+            print "  " + term.dump()
+        sys.stderr.write("***\n")
             
 ## Test
 
@@ -166,8 +331,20 @@ def test():
     d.parseRecipe("set x=C1+C2 print C1,C2,x")
     d.dump()
     d.setNcols(3)
-    d.processRow(["5", "2", "pippo"])
-    d.processRow(["6", "12", "pluto"])
+    d.processAllRows()
     print d.colnames
     print d.bindings
     print d.variables
+
+if __name__ == "__main__":
+    d = Driver()
+    d.parseArgs(sys.argv[1:])
+    if d.dumpRecipe:
+        d.dump()
+    d.initialize()
+    try:
+        d.processAllRows()
+        d.printReturns()
+    finally:
+        d.cleanup()
+
