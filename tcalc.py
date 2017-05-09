@@ -119,6 +119,9 @@ class ReturnTerm(Term):
 class SumTerm(ReturnTerm):
     sum = 0
 
+    def reset(self):
+        self.sum = 0
+
     def execute(self):
         global ACTIVE
         ACTIVE = self
@@ -135,6 +138,10 @@ class SumTerm(ReturnTerm):
 class AvgTerm(ReturnTerm):
     sum = 0
     nvals = 0
+
+    def reset(self):
+        self.sum = 0
+        self.nvals = 0
 
     def execute(self):
         global ACTIVE
@@ -153,6 +160,11 @@ class StdevTerm(ReturnTerm):
     sum = 0
     sumsq = 0
     nvals = 0
+
+    def reset(self):
+        self.sum = 0
+        self.sumsq = 0
+        self.nvals = 0
 
     def execute(self):
         global ACTIVE
