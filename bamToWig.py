@@ -182,12 +182,19 @@ def homerToBedGraph(infile, trackdata):
                     end = int(parsed[3])
                     fc = float(parsed[5])
                     data[chrom].append((start, end, fc))
-                    
+            
+        # Write regions in order, taking care of handling overlaps
         for chrom in sorted(data):
             data[chrom].sort(key=lambda r: r[0])
-            for row in data[chrom]:
-                out.write("{}\t{}\t{}\t{}\n".format(chrom, row[0], row[1], row[2]))
-
+            prev = data[chrom][0]
+            for row in data[chrom][1:]:
+                if row[0] <= prev[1]:
+                    prev[1] = max(prev[1], row[1])
+                    prev[2] += row[2]
+                else:
+                    out.write("{}\t{}\t{}\t{}\n".format(chrom, prev[0], prev[1], prev[2]))
+                    prev = row
+            out.write("{}\t{}\t{}\t{}\n".format(chrom, prev[0], prev[1], prev[2]))
     finally:
         if trackdata.outfile:
             out.close()

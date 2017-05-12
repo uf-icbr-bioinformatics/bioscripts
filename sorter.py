@@ -227,6 +227,8 @@ class Sorter(Script.Script):
         try:
             for g in ranking:
                 out.write("\t".join(rows[g]) + "\n")
+        except IOError:
+            return
         finally:
             out.close()
 

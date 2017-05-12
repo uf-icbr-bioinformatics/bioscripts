@@ -27,6 +27,8 @@ ADD = FUNC
 AVG = FUNC
 MEAN = FUNC
 STDEV = FUNC
+MIN = FUNC
+MAX = FUNC
 
 ### Terms
 
@@ -110,8 +112,9 @@ class ReturnTerm(Term):
     termtype = "return"
 
     def execute(self):
-        value = eval(self.code, globals(), self.parent.bindings)
-        print value
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
 
     def dump(self):
         return "DO " + self.source
@@ -180,12 +183,40 @@ class StdevTerm(ReturnTerm):
     def result(self):
         e = 1.0 * self.sum / self.nvals
         return math.sqrt((1.0 * self.sumsq / self.nvals) - (e * e))
-        
+    
+class MinTerm(ReturnTerm):
+    minvalue = sys.float_info.max
+
+    def reset(self):
+        self.minvalue = sys.float_info.max
+
+    def perform(self, value):
+        if not type(value).__name__ == 'str':
+            self.minvalue = min(self.minvalue, value)
+    
+    def result(self):
+        return self.minvalue
+
+class MaxTerm(ReturnTerm):
+    maxvalue = sys.float_info.min
+
+    def reset(self):
+        self.minvalue = sys.float_info.min
+
+    def perform(self, value):
+        if not type(value).__name__ == 'str':
+            self.maxvalue = max(self.maxvalue, value)
+    
+    def result(self):
+        return self.maxvalue
+
 TERMMAP = [ ('SUM', SumTerm),
             ('ADD', SumTerm),
             ('AVG', AvgTerm),
             ('MEAN', AvgTerm),
-            ('STDEV', StdevTerm) ]
+            ('STDEV', StdevTerm),
+            ('MIN', MinTerm),
+            ('MAX', MaxTerm) ]
 
 def funcToTerm(source):
     global TERMMAP
@@ -310,7 +341,9 @@ to their numeric representation if possible."""
     def processAllRows(self):
         f = csv.reader(self.src, delimiter='\t')
         for row in f:
-            if row[0][0] == '#':
+            if len(row) == 0:
+                continue
+            if len(row[0]) > 0 and row[0][0] == '#':
                 continue
             if not self.ncols:
                 self.setNcols(len(row))
@@ -333,7 +366,7 @@ to their numeric representation if possible."""
     def dump(self):
         sys.stderr.write("*** Recipe dump:\n")
         for term in self.terms:
-            print "  " + term.dump()
+            sys.stderr.write("  " + term.dump() + "\n")
         sys.stderr.write("***\n")
             
 ## Test

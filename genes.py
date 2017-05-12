@@ -6,31 +6,76 @@ import Utils
 import Script
 
 def usage(what=None):
-    sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+    if what == None:
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
 
 Usage: genes.py [options] command command-arguments...
 
-where `command' can be one of:
+where `command' can be one of: makedb, classify, region, transcripts.
 
-  classify chrom:position - Classify the specified chromosome position according to 
-                            the transcripts it falls in.
-  region geneid           - Display the region for the gene identified by `geneid'.
-  transcripts geneid      - Display the transcripts for the gene identified by `geneid'.
+Common options:
+
+  -db D  | Load gene database from sqlite3 file D.
+  -gff G | Load gene database from GFF file G.
+
+Use genes.py -h <command> to get help on <command> and its specific options.
+
+""")
+
+    elif what == 'classify':
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py classify [options] chrom:position ... 
+
+Classify the specified chromosome positions according to the transcripts they fall in.
 
 Options:
 
-  -db D  | Load gene database from sqlite3 file D
-  -gff G | Load gene database from GFF file G
-  -d N   | Upstream/downstream distance from gene for classify or region (default: {})
-  -dup N | Upstream distance from gene for classify or region (default: {})
-  -ddn N | Downstream distance from gene for classify or region (default: {})
+  -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
+           to the same value (default: {}).
+  -dup N | Upstream distance from gene (default: {}).
+  -ddn N | Downstream distance from gene for classify or region (default: {}).
+  -t     | List individual transcripts.
+
+""".format(Prog.updistance, Prog.updistance, Prog.dndistance))
+
+    elif what == 'region':
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py region [options] spec ... 
+
+Display the genomic region for the genes (or transcripts, if -t is specified) identified by 
+`spec'. If `spec' is the string `all', outputs all genes or transcripts in the database. If a
+spec has the form @filename, gene or transcript ids are read from the first column file `filename', 
+one per line (a different column can be specified using @filename:col). Otherwise, each `spec' is
+treated as a gene or transcript identifier.
+
+Options:
+
   -r R   | Desired gene region for `region' command; either `b' (gene body),
            `u' (upstream), or `d' (downstream). Default: {}.
   -f F   | Use format F in the region command, either `c' (for coordinates, e.g.
            chr1:1000-1500) or `t' (tab-delimited). Default: {}.
-  -t     | List individual transcripts in classify command.
+  -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
+           to the same value (default: {}).
+  -dup N | Upstream distance from gene (default: {}).
+  -ddn N | Downstream distance from gene for classify or region (default: {}).
+  -t     | Show transcripts instead of genes.
 
 """.format(Prog.updistance, Prog.updistance, Prog.dndistance, Prog.regwanted, Prog.oformat))
+
+    elif what == 'transcripts':
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py transcripts spec ... 
+
+Display the transcripts for the gene identified by the supplied `spec's. If `spec' is the string 
+`all', outputs all transcripts in the database. If a spec has the form @filename, gene ids are 
+read from the first column file `filename', one per line (a different column can be specified 
+using @filename:col). and transcripts for those genes are printed. Otherwise, each `spec' is
+treated as a gene identifier, and its transcripts are printed.
+
+""")
 
 ### Program object
 
@@ -208,7 +253,7 @@ class Genelist():
         for (chrom, cgenes) in self.genes.iteritems():
             for cg in cgenes:
                 result.append(cg.name)
-        print "{} genes returned".format(len(result))
+        # print "{} genes returned".format(len(result))
         return result
 
     def findGene(self, name, chrom=None):
@@ -396,6 +441,41 @@ class GenelistDB(Genelist):
         else:
             return None
 
+    def findTranscript(self, name, chrom=None):
+        tcur = self.conn.cursor()
+        ecur = self.conn.cursor()
+
+        tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE ID=? OR name=? OR accession=? OR enst=?",
+                     (name, name, name, name))
+        trow = tcur.fetchone()
+        if trow:
+            tid = trow[0]
+            tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+            tr.exons = []
+            for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                setattr(tr, pair[0], pair[1])
+            for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                tr.addExon(erow[0], erow[1])
+            return tr
+        else:
+            return None
+
+    def getAllTranscripts(self):
+        tcur = self.conn.cursor()
+        ecur = self.conn.cursor()
+
+        for trow in tcur.execute("SELECT t.ID, t.name, accession, enst, t.chrom, t.strand, txstart, txend, cdsstart, cdsend, g.name FROM Transcripts t, Genes g WHERE t.parentID = g.ID ORDER BY t.chrom, txstart"):
+            if trow:
+                tid = trow[0]
+                tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                tr.gene = trow[10]
+                tr.exons = []
+                for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                    setattr(tr, pair[0], pair[1])
+                for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                    tr.addExon(erow[0], erow[1])
+                yield tr
+
     def findGenes(self, query, args):
         result = []
         qcur = self.conn.cursor()
@@ -444,6 +524,7 @@ class Transcript():
     exons = []
     smallrects = []
     largerects = []
+    gene = ""                   # Not normally used...
 
     def __init__(self, ID, chrom, strand, txstart, txend):
         self.ID = ID
@@ -574,6 +655,26 @@ non-coding exon), 'i' (in an intron)."""
                 return 'u'
             else:
                 return False
+            
+    def getRegion(self, params):
+        """Returns the region for this transcript as (start, end) according to the 'regwanted', 
+'updistance, and 'dndistance' attributes in the `params' object."""
+        if self.txstart and self.txend:
+            if params.regwanted == 'b':
+                return (self.txstart, self.txend)
+            elif params.regwanted == 'u':
+                if self.strand == 1:
+                    return (self.txstart - params.updistance, self.txstart + params.dndistance)
+                else:
+                    return (self.txend - params.dndistance, self.txend + params.updistance)
+            elif params.regwanted == 'd':
+                if self.strand == 1:
+                    return (self.txend - params.updistance, self.txend + parms.dndistance)
+                else:
+                    return (self.txstart - params.dndistance, self.txstart + params.updistance)
+        else:
+            return None
+
 
     def geneLimits(self, upstream, downstream, ref='B'):
         """Returns the start and end coordinates of a region extending from `upstream' bases
@@ -1038,23 +1139,41 @@ def doRegion():
         source = P.args
 
     for name in source:
-        gene = P.gl.findGene(name)
-        if gene:
-            reg = gene.getRegion(P)
-            if not reg:
-                continue
-            (start, end) = reg
-            if P.oformat == "c":
-                sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
-            elif P.oformat == "t":
-                sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
+        if P.cltrans:
+            tx = P.gl.findTranscript(name)
+            if tx:
+                reg = tx.getRegion(P)
+                if not reg:
+                    continue
+                (start, end) = reg
+                if P.oformat == "c":
+                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, tx.chrom, start, end, "+" if tx.strand == 1 else "-"))
+                elif P.oformat == "t":
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(tx.chrom, start, end, "+" if tx.strand == 1 else "-", name))
+            else:
+                sys.stderr.write("No transcript `{}'.\n".format(name))
         else:
-            sys.stderr.write("No gene `{}'.\n".format(name))
+            gene = P.gl.findGene(name)
+            if gene:
+                reg = gene.getRegion(P)
+                if not reg:
+                    continue
+                (start, end) = reg
+                if P.oformat == "c":
+                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
+                elif P.oformat == "t":
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
+            else:
+                sys.stderr.write("No gene `{}'.\n".format(name))
 
 def doTranscripts():
     if len(P.args) == 0:
         P.errmsg()
     sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
+    if P.args[0] == "all":
+        for tx in P.gl.getAllTranscripts():
+            sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(tx.gene, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
+
     for name in P.args:
         gene = P.gl.findGene(name)
         if gene:
@@ -1064,32 +1183,40 @@ def doTranscripts():
             sys.stderr.write("No gene `{}'.\n".format(name))
 
 def doClassify():
-    reg = parseRegion(P.args[0])
-    pos = reg[1]
     maxd = max(P.updistance, P.dndistance)
-    genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+
     if P.cltrans:
         sys.stdout.write("Gene\tID\tAccession\tClass\n")
-        for g in genes:
-            for tr in g.transcripts:
-                c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
     else:
         sys.stdout.write("Gene\tID\tClass\n")
-        for g in genes:
-            name = g.name
-            c = g.classifyPosition(pos, P.updistance, P.dndistance)
-            sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
+    
+    for a in P.args:
+        reg = parseRegion(a)
+        pos = reg[1]
+        genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+        if P.cltrans:
+            for g in genes:
+                for tr in g.transcripts:
+                    c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                    sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+        else:
+            for g in genes:
+                name = g.name
+                c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
     
 def main(args):
     cmd = P.parseArgs(args)
     P.gl = loadGenes(P.source, P.sourcetype)
-    if cmd == 'region':         # Print the region for the genes passed as arguments.
-        doRegion()
-    elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.
-        doTranscripts()
-    elif cmd == 'classify':  # Classify the given position (chr:pos) according to the transcripts it falls in
-        doClassify()
+    try:
+        if cmd == 'region':         # Print the region for the genes passed as arguments.
+            doRegion()
+        elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.
+            doTranscripts()
+        elif cmd == 'classify':  # Classify the given position (chr:pos) according to the transcripts it falls in
+            doClassify()
+    except IOError:
+        return
 
 if __name__ == "__main__":
     args = sys.argv[1:]
