@@ -29,9 +29,8 @@ def usage(what=None):
     if what == 'matrix':
         sys.stderr.write("""Usage: {} matrix [-e] [-ercc filename] [-mix a,b,c...] files...
 
-Combine multiple .genes.results or .isoforms.results from RSEM into a single data matrix. 
-This command is equivalent to rsem-generate-data-matrix, but handles ERCC-based normalization
-as well. Options:
+Combine columns from multiple files into a single data matrix. This command is equivalent to 
+rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options:
 
  -c name        | Output column 'name' (default: expected_count).
  -e             | Enable ERCC normalization.
