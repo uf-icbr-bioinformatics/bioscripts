@@ -89,13 +89,16 @@ class PrintTerm(Term):
     variables = []
 
     def init(self, source):
-        self.addVariables(source)
+        if source:
+            self.addVariables(source)
     
     def addVariables(self, vars):
         for v in [ s.strip(" \t") for s in vars.split(",") ]:
             self.variables.append(v)
 
     def execute(self):
+        if self.variables == []:
+            self.variables = self.parent.colnames
         out = self.parent.out
         bdg = self.parent.bindings
         bdg['CM'] += 1
@@ -220,10 +223,13 @@ TERMMAP = [ ('SUM', SumTerm),
 
 def funcToTerm(source):
     global TERMMAP
-    for tm in TERMMAP:
-        if source.startswith(tm[0]):
-            return tm[1]
-    return None
+    p = source.find("(")
+    if p > 0:
+        tag = source[:p].upper()
+        for tm in TERMMAP:
+            if tag == tm[0]:
+                return (tm[1], tag + source[p:])
+    return (None, source)
 
 ### Driver object
 
@@ -308,7 +314,7 @@ class Driver():
                 self.addTerm(SetTerm(w))
             elif mode == "print":
                 if self.printTerm == None:
-                    # sys.stderr.write("Adding PRINT term `{}'\n".format(w))
+                    sys.stderr.write("Adding PRINT term `{}'\n".format(w))
                     pt = PrintTerm(w)
                     self.addTerm(pt)
                     self.printTerm = pt
@@ -316,14 +322,19 @@ class Driver():
                     # sys.stderr.write("Adding variable to PRINT term `{}'\n".format(w))
                     pt.addVariables(w)
             elif mode == "do" or mode == "return":
-                cls = funcToTerm(w)
+                (cls, neww) = funcToTerm(w)
+                # print (cls, neww)
                 if cls:
-                    rt = cls(w)
+                    rt = cls(neww)
                     self.addTerm(rt)
                     self.returnTerms.append(rt)
                 else:
                     sys.stderr.write("Warning: no function found in term `{}'.\n".format(w))
-            
+        if not (self.printTerm or self.returnTerms):
+            pt = PrintTerm(None)
+            self.addTerm(pt)
+            self.printTerm = pt
+
     def execute(self):
         for term in self.terms:
             term.execute()
@@ -340,18 +351,21 @@ to their numeric representation if possible."""
 
     def processAllRows(self):
         f = csv.reader(self.src, delimiter='\t')
-        for row in f:
-            if len(row) == 0:
-                continue
-            if len(row[0]) > 0 and row[0][0] == '#':
-                continue
-            if not self.ncols:
-                self.setNcols(len(row))
-            self.bindings['CN'] += 1
-            try:
-                self.processRow(row)
-            except SkipEntry:
-                pass
+        try:
+            for row in f:
+                if len(row) == 0:
+                    continue
+                if len(row[0]) > 0 and row[0][0] == '#':
+                    continue
+                if not self.ncols:
+                    self.setNcols(len(row))
+                self.bindings['CN'] += 1
+                try:
+                    self.processRow(row)
+                except SkipEntry:
+                    pass
+        except IOError:
+            return
 
     def processRow(self, row):
         self.bindColumnValues(row)

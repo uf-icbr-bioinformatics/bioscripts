@@ -10,8 +10,6 @@ import time
 import pysam
 import string
 import random
-import fractions
-import subprocess
 
 def genOpen(filename, mode):
     """Generalized open() function - works on both regular files and .gz files."""
@@ -221,22 +219,16 @@ in the first column and as values the contents of the specified `column'
 
 def fileToList(filename, delimiter='\t', hdr=True):
     """Read delimited file `filename' and return its contents as a list of lists. If `hdr' is True (the
-default) skip the first line."""
+default) treat the first line as header. Returns a tuple (data, header)."""
     result = []
+    header = []
     with open(filename, "r") as f:
+        r = csv.reader(f, delimiter=delimiter)
         if hdr:
-            f.readline()
-        for line in f:
-            line = line.rstrip("\r\n").split(delimiter)
+            header = r.next()
+        for line in r:
             result.append(line)
-    return result
-
-def linkify(url, text=None):
-    if not text:
-        text = url
-    return "<A href='{}'>{}</A>".format(url, text)
-
-### Should this be here?
+    return (result, header)
 
 def detectFileFormat(filename):
     """Examine the first line of file `filename' and return "fasta" if
@@ -250,15 +242,6 @@ format, "?" otherwise."""
             elif line[0] == "@":
                 return "fastq"
         return "?"
-
-def fastqcPath(basedir, f):
-    base = os.path.split(f)[1]
-    if base.endswith(".gz"):
-        base = base[:-3]
-    if base.endswith(".fastq"):
-        base = base[:-6]
-    target = basedir + base + "_fastqc.html"
-    return linkify(target, text=base)
 
 ### Smart CSV reader
 
@@ -302,16 +285,27 @@ class AtFileReader():
     def __iter__(self):
         return self
 
+    def close(self):
+        self.stream.close()
+
     def next(self):
         while True:
             line = self.stream.readline()
             if line == '':
-                self.stream.close()
+                self.close()
                 raise StopIteration
-            line = line.rstrip("\r\n")
             if line[0] != self.ignorechar:
-                line = line.split("\t")
+                line = line.rstrip("\r\n").split("\t")
                 return line[self.col]
+
+    def readline(self):
+        while True:
+            line = self.stream.readline()
+            if line == '':
+                self.close()
+                return line
+            if line[0] != self.ignorechar:
+                return line.rstrip("\r\n").split("\t")
 
 ### Parser for GTF files
 ### *** (this should be replaced with the parsers in genplot/genes)
@@ -354,68 +348,6 @@ def parseAnnotations(ann):
             anndict[pair[0]] = pair[1].strip('"')
     return anndict
 
-### Adding annotations to a file
-
-def annotateFile(infile, outfile, table, annot=[], annotNames=[], idcol=0, idname=False, missing='???'):
-    """Read each line of file `infile' and look up the identifier in column `idcol' in 
-dictionary `table'. If found, add the entries listed in `fields' to the current line.
-Then write each line to `outfile'. If `idname' is specified, it is added to the front of the new header line
-(to account for the fact that tables produced by R don't have a header for the first column)."""
-    if len(annot) != len(annotNames):
-        sys.stderr.write("annotateFile: the length of fields and fieldNames should be the same.\n")
-        return
-        
-    m = [missing]*len(annot)
-    print "Annotating file {} into {}.".format(infile, outfile)
-    with open(outfile, "w") as out:
-        with open(infile, "r") as f:
-            hdr = parseLine(f.readline())
-            if idname:
-                hdr = [idname] + hdr
-            ohdr = hdr[0:idcol+1] + annotNames + hdr[idcol+1:] # build output header line
-            out.write("\t".join(ohdr) + "\n")
-            for line in f:
-                fields = parseLine(line)
-                idv = fields[idcol].strip('"')
-                if idv in table:
-                    ann = table[idv]
-                    ofields = fields[0:idcol+1]
-                    for a in annot:
-                        if a in ann:
-                            ofields.append(ann[a])
-                        else:
-                            ofields.append(missing)
-                    ofields += fields[idcol+1:]
-                else:
-                    ofields = fields[0:idcol+1] + m + fields[idcol+1:]
-                out.write("\t".join(ofields) + "\n")
-
-### For ma.py
-
-def extractExpressions(sigfile, exprfile, outfile, sigidcol=0, sigfccol=1, idcol=0, datacol=1, maxrows=100):
-    genes = []
-
-    # Read list of genes with FCs
-    with open(sigfile, "r") as f:
-        f.readline()
-        for line in f:
-            parsed = line.rstrip("\r\n").split("\t")
-            gid = parsed[sigidcol]
-            fc = float(parsed[sigfccol])
-            genes.append((abs(fc), gid))
-
-    genes.sort(key=lambda g: g[0], reverse=True)
-    wanted = [ g[1] for g in genes[:maxrows] ]
-
-    with open(outfile, "w") as out:
-        with open(exprfile, "r") as f:
-            hdr = f.readline().rstrip("\r\n").split("\t")
-            out.write("Gene\t" + "\t".join(hdr[datacol:]) + "\n")
-            for line in f:
-                parsed = line.rstrip("\r\n").split("\t")
-                if parsed[0] in wanted:
-                    out.write(parsed[idcol] + "\t" + "\t".join(parsed[datacol:]) + "\n")
-
 ### BAM utilities
 
 def countReadsInBAM(filename):
@@ -436,184 +368,6 @@ def getChromsFromBAM(filename):
         if fields[0] != '*' and fields[0] != '':
             chroms.append(fields[0])
     return chroms
-
-### Hub generator
-
-class UCSCHub():
-    genome = "hg38"
-    name = "Hub"
-    shortLabel = "testHub"
-    longLabel = "A test UCSC hub"
-    email = "ariva@ufl.edu"
-    sizes = ""                  # Required by wigToBigWig, etc
-
-    # These should not need to be changed
-    dirname = "hub"             # Name of directory containing hub
-    genomesFile = "genomes.txt"
-    trackFile = "trackDb.txt"
-    ucscpath = "/apps/dibig_tools/1.0/lib/ucsc/"
-    parent = ""                 # If defined, we're in a container
-
-    def __init__(self, name, shortLabel, longLabel, genome=None, sizes=None, dirname=None, genomesFile=None, trackFile=None, email=None):
-        self.name = name
-        self.shortLabel = shortLabel
-        self.longLabel = longLabel
-        if genome:
-            self.genome = genome
-        if dirname:
-            self.dirname = dirname
-        if trackFile:
-            self.trackFile = trackFile
-        if genomesFile:
-            self.genomesFile = genomesFile
-        if email:
-            self.email = email
-        if sizes:
-            self.sizes = sizes
-        else:
-            self.sizes = self.ucscpath + "/" + self.genome + ".chrom.sizes"
-
-    def mkdir(self, name):
-        if not os.path.exists(name):
-            os.mkdir(name)
-
-    def missingOrStale(self, target, source):
-        """Return True if `target' is missing or is older than `source'."""
-        if os.path.isfile(target):
-            if source and os.path.isfile(source):
-                this = os.path.getmtime(target)
-                that = os.path.getmtime(source)
-                return (this < that)
-            else:
-                return False
-        else:
-            return True
-
-    def shell(self, command, *args):
-        """Like executef(), but allows multiple commands, redirection, piping, etc (runs a subshell).
-Returns the command's output without the trailing \n."""
-        cmd = command.format(*args)
-        print "Executing: " + cmd
-        try:
-            return subprocess.check_output(cmd, shell=True).rstrip("\n")
-        except subprocess.CalledProcessError as cpe:
-            return cpe.output.rstrip("\n")
-
-    def getBasename(self, path):
-        return os.path.splitext(os.path.basename(path))[0]
-
-    def generate(self):
-        path = self.dirname + "/"                                  # hub/
-        self.mkdir(path)
-        self.mkdir(path + self.genome)                             # hub/hg38
-        self.trackDbPath = self.genome + "/" + self.trackFile      # hg38/trackDb.txt
-
-        # Write genomes file
-        with open(path + self.genomesFile, "w") as out:            # hub/genomes.txt
-            out.write("""genome {}
-trackDb {}
-""".format(self.genome, self.trackDbPath))
-
-        # Write hub file
-        with open(path + "hub.txt", "w") as out:                   # hub/hub.txt
-            out.write("""hub {}
-shortLabel {}
-longLabel {}
-genomesFile {}
-email {}
-""".format(self.name, self.shortLabel, self.longLabel, self.genomesFile, self.email))
-
-        # Write trackDb file
-        self.trackDbPath = path + self.trackDbPath
-        with open(self.trackDbPath, "w") as out:                   # hub/hg38/trackDb.txt
-            out.write("""# TrackDB for {} hub\n\n""".format(self.name))
-
-    def writeStanza(self, out, base, options={}):
-        out.write(base)
-        for key, value in options.iteritems():
-            out.write("{} {}\n".format(key, value))
-        out.write("\n")
-
-    def addWig(self, filename, name, shortLabel, longLabel, **options):
-        bname = self.getBasename(filename)
-        bw = bname + ".bw"
-        bwpath = self.dirname + "/" + self.genome + "/" + bw
-        if self.missingOrStale(bwpath, filename):
-            self.shell("{}/wigToBigWig -clip {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
-
-        with open(self.trackDbPath, "a") as out:
-            self.writeStanza(out, """track {}
-{}bigDataUrl {}
-shortLabel {}
-longLabel {}
-type bigWig
-autoScale on
-""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)), options=options)
-
-    def addBigWig(self, filename, name, shortLabel, longLabel, **options):
-        bname = self.getBasename(filename)
-        bw = bname + ".bw"
-        bwpath = self.dirname + "/" + self.genome + "/" + bw
-        if self.missingOrStale(bwpath, filename):
-            self.shell("cp {} {}", filename, bwpath)
-
-        with open(self.trackDbPath, "a") as out:
-            self.writeStanza(out, """track {}
-{}bigDataUrl {}
-shortLabel {}
-longLabel {}
-type bigWig
-autoScale on
-""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)), options=options)
-
-    def addBedGraph(self, filename, name, shortLabel, longLabel):
-        bname = self.getBasename(filename)
-        bw = name + ".bw"
-        bwpath = self.dirname + "/" + self.genome + "/" + bw
-        if self.missingOrStale(bwpath, filename):
-            self.shell("{}/bedGraphToBigWig {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
-
-        with open(self.trackDbPath, "a") as out:
-            out.write("""track {}
-{}bigDataUrl {}
-shortLabel {}
-longLabel {}
-type bigWig
-autoScale on
-
-""".format(name, self.parent, bw, shortLabel.format(name), longLabel.format(name)))
-
-    def addBed(self, filename, name, shortLabel, longLabel):
-        bname = self.getBasename(filename)
-        bw = bname + ".bw"
-        bwpath = self.dirname + "/" + self.genome + "/" + bw
-        if self.missingOrStale(bwpath, filename):
-            self.shell("{}/bedToBigBed -clip {} {} {}", self.ucscpath, filename, self.sizes, bwpath)
-
-        with open(self.trackDbPath, "a") as out:
-            out.write("""track {}
-{}bigDataUrl {}
-shortLabel {}
-longLabel {}
-type bigWig
-autoScale on
-
-""".format(name, self.parent, bw, shortLabel, longLabel))
-
-    def startContainer(self, name, shortLabel, longLabel, tracktype):
-        with open(self.trackDbPath, "a") as out:
-            out.write("""track {}
-compositeTrack on
-longLabel {}
-shortLabel {}
-type {}
-allButtonPair on
-
-""".format(name, longLabel, shortLabel, tracktype))
-        self.parent = "parent {} on\n".format(name)
-
-    def endContainer(self):
-        self.parent = ""
 
 ### resample (store a long vector into a short one, or vice-versa)
 
