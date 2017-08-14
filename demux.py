@@ -5,7 +5,7 @@ import os.path
 import Utils
 import Script
 
-def usage():
+def usage(what):
     sys.stderr.write("""demux.py - Operate on barcodes in fastq files
 
 Usage: demux.py detect [options] fastq
@@ -258,22 +258,25 @@ class BarcodeMgr():
         ranking = [b for b in self.barcodes.itervalues()]
         ranking.sort(key=lambda b:b.nhits, reverse=True)
 
-        sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
-        for b in ranking:
-            seq = b.seq
-            if P.revcomp:
-                seq = revcomp(seq)
-            if self.nhits == 0:
-                pct = 0
-            else:
-                pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
-            if pct >= P.minpct:
-                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
-            else:
-                hiddenb += 1
-                hiddenh += b.nhits
-        if hiddenb > 0 and self.nhits > 0:
-            sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, Utils.f2dd(100.0 * hiddenh / self.nhits)))
+        try:
+            sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
+            for b in ranking:
+                seq = b.seq
+                if P.revcomp:
+                    seq = revcomp(seq)
+                if self.nhits == 0:
+                    pct = 0
+                else:
+                    pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
+                if pct >= P.minpct:
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
+                else:
+                    hiddenb += 1
+                    hiddenh += b.nhits
+            if hiddenb > 0 and self.nhits > 0:
+                sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, Utils.f2dd(100.0 * hiddenh / self.nhits)))
+        except IOError:
+            pass
 
 class FastqRec():
     name = ""
@@ -355,8 +358,11 @@ class FastqReader():
             dm.findOrCreate(bc)
             if self.nread == ndetect:
                 break
-        sys.stdout.write("# Reads examined: {}\n".format(dm.nhits))
-        dm.showCounts()
+        try:
+            sys.stdout.write("# Reads examined: {}\n".format(dm.nhits))
+            dm.showCounts()
+        except IOError:
+            pass
 
 class FastaReader(FastqReader):
 

@@ -46,18 +46,28 @@ class Genelist():
     btFlags = {}
     currentChrom = ""
     currentGenes = ""
+    source = ""
 
     def __init__(self):
         self.chroms = []
         self.genes = {}
         self.btFlags = {"": True, "*": True}
 
-    def saveAllToDB(self, conn):
+    def saveAllToDB(self, filename):
         """Save all genes to the database represented by connection `conn'."""
+        tot  = 0                # Total number of genes written
+        conn = sql.connect(filename)
         with conn:
             for chrom in self.chroms:
+                sys.stderr.write("  {}... ".format(chrom))
+                n = 0
                 for g in self.genes[chrom]:
                     g.saveToDB(conn)
+                    n += 1
+                sys.stderr.write("{} genes written.\n".format(n))
+                tot += n
+            conn.execute("INSERT INTO Source (filename) values (?);", (self.source,))
+        return tot
 
     def getGenesTable(self):
         table = {}
@@ -308,6 +318,13 @@ class GenelistDB(Genelist):
         else:
             return None
 
+    def allTranscriptNames(self):
+        curr = self.conn.cursor()
+        curr.execute("SELECT ID FROM Transcripts ORDER BY ID")
+        names = [ r[0] for r in curr.fetchall() ]
+        curr.close()
+        return names
+
     def findTranscript(self, name, chrom=None):
         tcur = self.conn.cursor()
         ecur = self.conn.cursor()
@@ -374,7 +391,7 @@ class GenelistDB(Genelist):
         return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
                               (chrom, start, end, start, end, start, end))
 
-# Gene class
+# Transcript class
 
 class Transcript():
     ID = ""
@@ -415,15 +432,17 @@ class Transcript():
             print "{}Exons: {}".format(prefix, self.exons)
 
     def saveToDB(self, conn, parentID):
-        with conn:
-            idx = 0
-            for ex in self.exons:
-                conn.execute("INSERT INTO Exons(ID, idx, chrom, start, end) VALUES (?, ?, ?, ?, ?);",
-                             (self.ID, idx, self.chrom, ex[0], ex[1]))
-                idx += 1
+        idx = 0
+        for ex in self.exons:
+            conn.execute("INSERT INTO Exons(ID, idx, chrom, start, end) VALUES (?, ?, ?, ?, ?);",
+                         (self.ID, idx, self.chrom, ex[0], ex[1]))
+            idx += 1
 
+        try:
             conn.execute("INSERT INTO Transcripts (ID, parentID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                          (self.ID, parentID, self.name, self.accession, self.enst, self.chrom, self.strand, self.txstart, self.txend, self.cdsstart, self.cdsend))
+        except sql.IntegrityError:
+            sys.stderr.write("Error: transcript ID {} is not unique.\n".format(self.ID))
 
     def addExon(self, start, end):
         self.exons.append((start, end))
@@ -579,6 +598,8 @@ downstream."""
             else:
                 return self.txend - position
 
+### Gene class
+
 class Gene():
     ID = ""
     name = ""
@@ -612,11 +633,10 @@ class Gene():
             t.dump(prefix="  ", short=True)
 
     def saveToDB(self, conn):
-        with conn:
-            for tr in self.transcripts:
-                tr.saveToDB(conn, self.ID)
-            conn.execute("INSERT INTO Genes (ID, name, geneid, ensg, biotype, chrom, strand, start, end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                         (self.ID, self.name, self.geneid, self.ensg, self.biotype, self.chrom, self.strand, self.start, self.end))
+        for tr in self.transcripts:
+            tr.saveToDB(conn, self.ID)
+        conn.execute("INSERT INTO Genes (ID, name, geneid, ensg, biotype, chrom, strand, start, end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                     (self.ID, self.name, self.geneid, self.ensg, self.biotype, self.chrom, self.strand, self.start, self.end))
 
     def addTranscript(self, transcript):
         self.transcripts.append(transcript)
@@ -665,11 +685,15 @@ def getLoader(filename):
     """Returns the name of the loader class to be used to load the gene database in `filename'.
 Currently recognizes the following extensions: .gb (genbank), .gtf (GTF), .gff/.gff3 (GFF), .db
 (sqlite3 database)."""
-    loadermap = {'.gb': GenbankLoader,
-                 '.gtf': GTFloader,
-                 '.gff': GFFloader,
+    loadermap = {'.gb':   GenbankLoader,
+                 '.gtf':  GTFloader,
+                 '.gff':  GFFloader,
                  '.gff3': GFFloader,
-                 '.db': DBloader}
+                 '.GTF':  GTFloader,
+                 '.GFF':  GFFloader,
+                 '.GFF3': GFFloader,
+                 '.db':   DBloader,
+                 '.csv':  refGeneLoader}
 
     ext = os.path.splitext(filename)[1]
     if ext in loadermap:
@@ -696,25 +720,26 @@ class GeneLoader():
             chrom = "chr" + chrom
         return chrom
 
-    def load(self, sort=True, index=True):
-        self._load()
+    def load(self, sort=True, index=True, preload=True):
+        self._load(preload=preload)
         if sort:
             self.gl.sortGenes()
         if index:
             self.gl.buildIndexes()
+        self.gl.source = self.filename
         return self.gl
 
 class refGeneLoader(GeneLoader):
     genes = {}                  # Dictionary of genes by name
 
-    def _load(self):
+    def _load(self, preload=True):
         self.genes = {}
         with open(self.filename, "r") as f:
             reader = Utils.CSVreader(f)
             for line in reader:
                 chrom = self.validateChrom(line[2])
                 if chrom:
-                    name = line[12]
+                    name = line[0]
                     if name in self.genes:
                         self.currGene = self.genes[name]
                     else:
@@ -729,7 +754,7 @@ class refGeneLoader(GeneLoader):
 
 class GenbankLoader(GeneLoader):
 
-    def _load(self):
+    def _load(self, preload=True):
         chrom = ""
         thisGene = None
         start = None
@@ -798,11 +823,9 @@ class GTFloader(GeneLoader):
                 anndict[key] = val
         return anndict
 
-    def _load(self, wanted=[], notwanted=[]):
+    def _load(self, wanted=[], notwanted=[], preload=True):
         """Read genes from a GTF file `filename'. If `wanted' is specified, only include genes whose biotype
 is in this list (or missing). If `notwanted' is specified, only include genes whose biotype is not in this list (or missing)."""
-        g = None                # Current gene
-        gt = None               # Current transcript
 
         if wanted <> []:
             self.gl.setWanted(wanted)
@@ -811,57 +834,45 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
 
         with open(self.filename, "r") as f:
             reader = Utils.CSVreader(f)
-            for line in f:
-                if line[6] == '+':
-                    strand = 1
-                else:
-                    strand = -1
+            for line in reader:
+                strand = 1 if line[6] == '+' else -1
                 chrom = self.validateChrom(line[0])
                 if not chrom:
                     continue    # skip this entry
                 btype = line[2]
+                ann = self.parseAnnotations(line[8])
+
                 if btype == 'gene':
-                    if False: # gt:
-                        gt.setCDS(g.cdsstart, g.cdsend)
-                        g.dump()
-                        raw_input()
-                        self.gl.add(gt, gt.chrom)
-                    g = Gene([], chrom=chrom, strand=strand) 
-                    gt = None
-                    ann = parseAnnotations(line[8])
+                    self.currGene = Gene(ann['gene_id'], chrom, strand) 
+                    self.currTranscript = None
                     if 'gene_name' in ann:
-                        g.name = ann['gene_name']
+                        self.currGene.name = ann['gene_name']
                     else:
-                        g.name = ann['gene_id']
-                    g.geneid = ann['gene_id']
-                    g.biotype = ann['gene_biotype']
+                        self.currGene.name = ann['gene_id']
+                        self.currGene.biotype = ann['gene_biotype']
+                    # print "Adding {} to {}".format(self.currGene.ID, chrom)
+                    # raw_input()
+                    self.gl.add(self.currGene, chrom)
+
                 elif btype == 'transcript':
-                    if gt:
-                        gt.setCDS(gt.cdsstart, gt.cdsend)
-                        # gt.dump()
-                        # raw_input()
-                    gt = Gene([], chrom=g.chrom, strand=g.strand) # clone gene into transcript
-                    gt.name = g.name
-                    gt.geneid = g.geneid
-                    gt.biotype = g.biotype
-                    gt.txstart = int(line[3])
-                    gt.txend   = int(line[4])
-                    ann = parseAnnotations(line[8])
-                    gt.mrna = ann['transcript_id']
-                    gt.txname = Utils.dget('transcript_name', ann)
-                    genes.add(gt, gt.chrom)
+                    txid = ann['transcript_id']
+                    self.currTranscript = Transcript(txid, chrom, strand, int(line[3]), int(line[4])) # clone gene into transcript
+                    #self.currTranscript.name    = self.currGene.name
+                    self.currTranscript.geneid  = self.currGene.geneid
+                    self.currTranscript.biotype = Utils.dget('transcript_biotype', ann)
+                    self.currTranscript.name  = Utils.dget('transcript_name', ann)
+                    if txid.startswith("ENST"):
+                        self.currTranscript.enst = txid
+                    self.currTranscript.exons   = []
+                    self.currGene.addTranscript(self.currTranscript)
                 elif btype == 'CDS':
                     start = int(line[3])
                     end   = int(line[4])
-                    if gt.cdsstart == None:
-                        gt.cdsstart = start
-                    gt.cdsend = end
+                    self.currTranscript.setCDS(start, end)
                 elif btype == 'exon':
                     start = int(line[3])
                     end   = int(line[4])
-                    # print (start, end)
-                    gt.exons.append((start, end))
-        genes.add(gt, gt.chrom)
+                    self.currTranscript.addExon(start, end)
 
 class GFFloader(GeneLoader):
 
@@ -883,7 +894,7 @@ class GFFloader(GeneLoader):
             return idstring[11:]
         return idstring
 
-    def _load(self, wanted=[], notwanted=[]):
+    def _load(self, wanted=[], notwanted=[], preload=True):
         chrom = ""
         strand = 0
         orphans = 0             # Entries not following their parents
@@ -953,7 +964,7 @@ class GFFloader(GeneLoader):
 class DBloader(GeneLoader):
     conn = None
 
-    def _load(self, preload=False, wanted=[], notwanted=[]):
+    def _load(self, preload=True, wanted=[], notwanted=[]):
         self.gl = GenelistDB()
         self.gl.preloaded = preload
         self.conn = sql.connect(self.filename)
@@ -998,6 +1009,8 @@ def initializeDB(filename):
         conn.execute("CREATE TABLE Exons (ID varchar, idx int, chrom varchar, start int, end int);")
         for field in ['ID', 'chrom', 'start', 'end']:
             conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
+        conn.execute("DROP TABLE IF EXISTS Source;")
+        conn.execute("CREATE TABLE Source (filename VARCHAR, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);")
     finally:
         conn.close()
 

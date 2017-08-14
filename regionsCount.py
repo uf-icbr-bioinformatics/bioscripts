@@ -25,7 +25,7 @@ Options:
  -h         | Print this usage message.
  -o outfile | Write output to `outfile' (default: standard output).
  -q qual    | Discard reads with quality score below `qual' (default: {}).
- -z         | Do not discard intervals with coverage of 0.
+ -z         | Discard intervals with coverage of 0.
  -w W       | Vector mode, using vector of length W.
 
 """.format(BAMreader.qual))
@@ -61,18 +61,19 @@ class BAMreader(object):
                 c += 1
         return c
 
-    def addCountsToBED(self, bedfile, out, zeros=True):
+    def addCountsToBED(self, bedfile, out):
         self.countAlignments()
         rpkm_factor = 1000000000.0 / self.nalignments
-        for parsed in Utils.CSVreader(bedfile):
-            start = int(parsed[1])
-            end = int(parsed[2])
-            rl = end-start
-            if rl > 0:
-                c = self.countAlignmentsInRegion(parsed[0], start, end)
-                rpkm = c * rpkm_factor / rl
-                if c > 0 or self.zeros:
-                    out.write("\t".join(parsed) + "\t" + str(c) + "\t" + str(rpkm) + "\n")
+        with open(bedfile, "r") as f:
+            for parsed in Utils.CSVreader(f):
+                start = int(parsed[1])
+                end = int(parsed[2])
+                rl = end-start
+                if rl > 0:
+                    c = self.countAlignmentsInRegion(parsed[0], start, end)
+                    rpkm = c * rpkm_factor / rl
+                    if c > 0 or self.zeros:
+                        out.write("\t".join(parsed) + "\t" + str(c) + "\t" + str(rpkm) + "\n")
 
     ### Vector mode
 

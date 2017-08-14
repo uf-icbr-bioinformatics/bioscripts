@@ -26,6 +26,10 @@ class Script():
                            ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
         self.errorCode = 100
         self.defineErrors(errors)
+        self.init()
+
+    def init(self):
+        pass
 
     def defineErrors(self, errors):
         for e in errors:

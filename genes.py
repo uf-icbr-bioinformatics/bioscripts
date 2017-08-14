@@ -12,14 +12,31 @@ def usage(what=None):
 
 Usage: genes.py [options] command command-arguments...
 
-where `command' can be one of: makedb, classify, region, transcripts.
+where `command' can be one of: makedb, classify, region, transcripts, overlap.
 
 Common options:
 
-  -db D  | Load gene database from sqlite3 file D.
-  -gff G | Load gene database from GFF file G.
+  -db D  | Load gene database from database file D. D can be in one of the following formats:
+           - gtf (extensions .gtf, .GTF)
+           - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
+           - genbank (extension .gb)
+           - UCSC refFlat (extension .csv)
+           - sqlite3 (extension .db)
 
 Use genes.py -h <command> to get help on <command> and its specific options.
+
+""")
+
+    elif what == 'makedb':
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py classify [options] dbfile
+
+Convert a gene database in gtf/gff/genbank/refFlat format to sqlite3 format.
+
+Options
+
+  -db D | Load genes from file D.
 
 """)
 
@@ -35,7 +52,7 @@ Options:
   -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
            to the same value (default: {}).
   -dup N | Upstream distance from gene (default: {}).
-  -ddn N | Downstream distance from gene for classify or region (default: {}).
+  -ddn N | Downstream distance from gene (default: {}).
   -t     | List individual transcripts.
   -s     | Summary classification only (number and percentage of region classes).
 
@@ -54,17 +71,45 @@ treated as a gene or transcript identifier.
 
 Options:
 
-  -r R   | Desired gene region for `region' command; either `b' (gene body),
-           `u' (upstream), or `d' (downstream). Default: {}.
-  -f F   | Use format F in the region command, either `c' (for coordinates, e.g.
-           chr1:1000-1500) or `t' (tab-delimited). Default: {}.
+  -r R   | Desired gene region: either `b' (gene body), `u' (upstream), or `d' (downstream). 
+           Default: {}.
+  -f F   | Output format: either `c' (for coordinates, e.g. chr1:1000-1500) or `t' (tab-delimited).
+           Default: {}.
   -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
            to the same value (default: {}).
   -dup N | Upstream distance from gene (default: {}).
-  -ddn N | Downstream distance from gene for classify or region (default: {}).
+  -ddn N | Downstream distance from gene (default: {}).
   -t     | Show transcripts instead of genes.
 
-""".format(Prog.updistance, Prog.updistance, Prog.dndistance, Prog.regwanted, Prog.oformat))
+""".format(Prog.regwanted, Prog.oformat, Prog.updistance, Prog.updistance, Prog.dndistance))
+
+    elif what == 'overlap':
+        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py overlap [options] bedfile spec...
+
+This command reads regions from BED file `bedfile', and writes to standard output those that 
+overlap a region associated with one or more of the transcripts in the current database. The transcript
+region is specified using the same options as for the `region' command. If `spec' is the string 
+`all', considers all  genes or transcripts in the database. If a spec has the form @filename,
+transcript ids are read from the first column of file `filename', one per line (a different 
+column can be specified using @filename:col). Otherwise, each `spec' is treated as a gene or 
+transcript identifier.
+
+A region from the BED file is written to output if its overlap with at least one of the transcript
+regions is larger than the number of bases specified with the 
+
+Options:
+
+  -r R   | Desired gene region: either `b' (gene body), `u' (upstream), or `d' (downstream). 
+           Default: {}.
+  -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
+           to the same value (default: {}).
+  -dup N | Upstream distance from gene (default: {}).
+  -ddn N | Downstream distance from gene (default: {}).
+  -b B   | Minimum number of bases in minimum overlap (default: {}).
+
+""".format(Prog.regwanted, Prog.updistance, Prog.updistance, Prog.dndistance, Prog.ovbases))
 
     elif what == 'transcripts':
         sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
@@ -91,6 +136,7 @@ class Prog(Script.Script):
     regwanted = "b"             # Gene body by default
     gl = None                   # Gene list
     mode = "g"                  # used to be cltrans - also "t" for transcript-level, "s" for summary
+    ovbases = 100               # Number of overlap bases
     excel = False
 
     def parseArgs(self, args):
@@ -99,11 +145,7 @@ class Prog(Script.Script):
         
         self.standardOpts(args)
         for a in args:
-            if next == '-gff':
-                self.source = P.isFile(a)
-                self.sourcetype = 'GFF'
-                next = ""
-            elif next == '-db':
+            if next == '-db':
                 self.source = P.isFile(a)
                 self.sourcetype = 'DB'
                 next = ""
@@ -123,13 +165,16 @@ class Prog(Script.Script):
             elif next == '-x':
                 self.excel = a
                 next = ""
+            elif next == '-b':
+                self.ovbases = P.toInt(a)
+                next = ""
             elif next == '-r':
                 if a in ['b', 'u', 'd']:
                     self.regwanted = a
                     next = ""
                 else:
                     P.errmsg('BADREGION')
-            elif a in ["-gff", "-db", "-d", "-dup", "-ddn", "-f", "-r", "-x"]:
+            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b"]:
                 next = a
             elif a == '-t':
                 self.mode = "t"
@@ -139,14 +184,15 @@ class Prog(Script.Script):
                 self.args.append(a)
             else:
                 cmd = a
-        if cmd not in ['region', 'transcripts', 'classify', 'split']:
-            P.errmsg('NOCMD')
+        if cmd not in ['region', 'transcripts', 'classify', 'split', 'makedb', 'overlap']:
+            P.errmsg(P.NOCMD)
         return cmd
 
 P = Prog("genes.py", version="1.0", usage=usage, 
          errors=[('BADSRC', 'Missing gene database'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
-                 ('NOCMD', 'Missing command', "Please specify a command (either 'region', 'transcripts', or 'classify').") ])
+                 ('NOOUTDB', 'Missing database filename', "Please specify the name of the output database file."),
+                 ('NOCMD', 'Missing command', "Please specify a command (one of 'makedb', 'region', 'transcripts', 'classify', 'split').") ])
 
 # Utils
 
@@ -231,26 +277,36 @@ class Classifier():
 
 ### Main
 
-def loadGenes(source, format):
-    if format == 'GFF':
-        l = GeneList.GFFloader(source)
-    elif format == 'DB':
-        l = GeneList.DBloader(source)
-    else:
+def loadGenes(filename):
+    loaderClass = GeneList.getLoader(filename)
+    if not loaderClass:
         P.errmsg(P.BADSRC)
-    sys.stderr.write("Loading genes from {} database {}... ".format(format, source))
-    gl = l.load()
+    loader = loaderClass(filename)
+    sys.stderr.write("Loading genes database from {}... ".format(filename))
+    gl = loader.load(preload=False)
     sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
     return gl
 
+def doMakeDB():
+    if len(P.args) == 0:
+        P.errmsg(P.NOOUTDB)
+    dbfile = P.args[0]
+    sys.stderr.write("Saving gene database to {}...\n".format(dbfile))
+    GeneList.initializeDB(dbfile)
+    ng = P.gl.saveAllToDB(dbfile)
+    sys.stderr.write("done, {} genes written.\n".format(ng))
+
 def doRegion():
     if len(P.args) == 0:
-        P.errmsg("BADSRC")
+        P.errmsg(P.BADSRC)
 
     if P.args[0][0] == '@':
         source = Utils.AtFileReader(P.args[0])
     elif P.args[0] == "all":
-        source = P.gl.allGeneNames()
+        if P.mode == "t":
+            source = P.gl.allTranscriptNames()
+        else:
+            source = P.gl.allGeneNames()
     else:
         source = P.args
 
@@ -281,6 +337,57 @@ def doRegion():
                     sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
             else:
                 sys.stderr.write("No gene `{}'.\n".format(name))
+
+def findOverlapping(start, end, regions, minover):
+    result = []
+    for reg in regions:
+        if reg[0] > end:
+            break
+        if (start <= reg[0] <= end) or (start <= reg[1] <= end):
+            overlap = min(end, reg[1]) - max(start, reg[0])
+            if overlap >= minover:
+                result.append((overlap, reg))
+    return result
+
+def doOverlap():
+    if len(P.args) < 2:
+        P.errmsg()
+    bedfile = P.args[0]
+    if P.args[1] == "all":
+        source = P.gl.allTranscriptNames()
+    else:
+        source = P.args[1:]
+
+    regions = {}
+    sys.stderr.write("Computing regions... ")
+    for name in source:
+        tx = P.gl.findTranscript(name)
+        if tx:
+            reg = tx.getRegion(P)
+            if not reg:
+                continue
+            (start, end) = reg
+            chrom = tx.chrom
+            if chrom not in regions:
+                regions[chrom] = []
+            regions[chrom].append((start, end, name, tx.strand))
+    for chrom in regions.keys():
+        regions[chrom].sort()
+    sys.stderr.write("done.\n")
+
+    with open(bedfile, "r") as f:
+        reader = Utils.CSVreader(f)
+        for line in reader:
+            chrom = line[0]
+            start = int(line[1])
+            end   = int(line[2])
+            txregions = regions[chrom]
+            overs = findOverlapping(start, end, txregions, P.ovbases)
+            if overs:
+                overs.sort(key=lambda n: n[0])
+                for ovr in overs:
+                    ov = ovr[1]
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
 
 def doTranscripts():
     if len(P.args) == 0:
@@ -373,7 +480,7 @@ def doSplit():
 
 def main(args):
     cmd = P.parseArgs(args)
-    P.gl = loadGenes(P.source, P.sourcetype)
+    P.gl = loadGenes(P.source)
     try:
         if cmd == 'region':         # Print the region for the genes passed as arguments.
             doRegion()
@@ -383,6 +490,10 @@ def main(args):
             doClassify()
         elif cmd == 'split':
             doSplit()
+        elif cmd == 'makedb':
+            doMakeDB()
+        elif cmd == 'overlap':
+            doOverlap()
     except IOError:
         return
 
