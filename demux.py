@@ -11,6 +11,7 @@ def usage(what=None):
 Usage: demux.py detect [options] fastq
        demux.py split [options] fastq1 [fastq2]
        demux.py grep [options] fastq1 [fastq2]
+       demux.py distr [options] fastq1 [fastq2]
 
 The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
 the input file is assumed to be in fastq format and the barcodes are extracted from 
@@ -43,8 +44,10 @@ Options:
   -p N    | Do not show detected barcodes occurring in less than N% of reads (default: {})
   -lt P   | Search for pattern P in left reads.
   -rt P   | Search for pattern P in right reads.
+  -d D    | Number of files to distribute reads to (default: {})
+  -o O    | Prefix for files for distributed reads.
 
-""".format(Demux.maxmismatch, Demux.ndetect, Demux.minpct))
+""".format(Demux.maxmismatch, Demux.ndetect, Demux.minpct, Demux.distr))
 
 ### Program object
 
@@ -62,12 +65,14 @@ class Demux(Script.Script):
     bclen = None
     leftTarget = None
     rightTarget = None
+    distr = 1
+    distrout = None
 
     def parseArgs(self, args):
         self.nf = 0
         self.standardOpts(args)
         cmd = args[0]
-        if cmd in ['split', 'detect', 'grep']:
+        if cmd in ['split', 'detect', 'grep', 'distr']:
             self.mode = cmd
         else:
             P.errmsg(P.NOCMD)
@@ -95,7 +100,13 @@ class Demux(Script.Script):
             elif next == '-rt':
                 self.rightTarget = a
                 next = ""
-            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt']:
+            elif next == '-d':
+                self.distr = self.toInt(a)
+                next = ""
+            elif next == '-o':
+                self.distrout = a
+                next = ""
+            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt', '-o', '-d']:
                 next = a
             elif a == '-r':
                 self.revcomp = True
@@ -109,7 +120,7 @@ class Demux(Script.Script):
                 self.nf += 1
 
 P = Demux("demux", version="1.0", usage=usage,
-          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect.'),
+          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect, grep, distr.'),
                   ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.') ])
 
 ### Utils
@@ -201,6 +212,11 @@ class BarcodeMgr():
                 self.add(line[0], bc)
         if undet:
             self.add("UND", "*")
+
+    def initForDistribute(self, n):
+        for i in range(1, n+1):
+            si = str(i)
+            self.add(si, si)
 
     def add(self, name, seq):
         b = Barcode(name, seq)
@@ -475,6 +491,67 @@ class PairedFastqReader():
         sys.stderr.write("Matching read pairs: {}\n".format(ngood))
         sys.stderr.write("Not matching read pairs: {}\n".format(nbad))
 
+### Distribute
+
+def doDistribute():
+    dm = BarcodeMgr()
+    dm.initForDistribute(P.distr)
+    nameleft = getFastqBasename(P.fqleft)
+    if P.fqright:
+        nameright = getFastqBasename(P.fqright)
+    else:
+        nameright = None
+    try:
+        dm.openAll(nameleft, nameright)
+        pfr = PairedFastqReader(P.fqleft, P.fqright)
+        i = 0
+        while True:
+            pfr.nextRead()
+            if not pfr.reader1.stream:
+                break
+            label = dm.barcodeseqs[i]
+            bc = dm.barcodes[label]
+            #print "writing {} to {}, {}".format(i, label, bc)
+            #raw_input()
+            bc.writeRecord(pfr.fq1, pfr.fq2)
+            i += 1
+            if i == P.distr:
+                i = 0
+    finally:
+        dm.closeAll()
+
+def doDistributeOld():
+    outfiles1 = []
+    outfiles2 = []
+    outstreams1 = []
+    outstreams2 = []
+
+    try:
+        sys.stderr.write("Distributing reads to:\n")
+        if P.nf == 2:
+
+            for i in range(i, P.distr + 1):
+                outfiles1.append("{}.{}.R1.fastq.gz".format(P.distrout, i))
+                outfiles2.append("{}.{}.R2.fastq.gz".format(P.distrout, i))
+            for i in range(i, P.distr + 1):
+                sys.stderr.write("  {}, {}\n".format(outfiles1[i], outfiles2[i]))
+                outstreams1.append(Utils.genOpen(outfiles1[i]), "w")
+                outstreams2.append(Utils.genOpen(outfiles2[i]), "w")
+            pfr = PairedFastqReader(P.fqleft, P.fqright)
+            i = 0
+            while True:
+                pfr.nextRead()
+                if not pfr.stream:
+                    break
+                
+
+        else:
+            for i in range(i, P.distr + 1):
+                sys.stderr.write("  {}\n".format(outfiles1[i]))
+                outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
+    finally:
+        print 1
+
 ### Main
 
 def getFastqBasename(filename):
@@ -524,6 +601,9 @@ def main(args):
 
         fr = PairedFastqReader(P.fqleft, P.fqright)
         fr.grep(bm, nameleft, nameright, P.leftTarget, P.rightTarget)
+    
+    elif P.mode == 'distr':
+        doDistribute()
         
 if __name__ == "__main__":
     args = sys.argv[1:]
