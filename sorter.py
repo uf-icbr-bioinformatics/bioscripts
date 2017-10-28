@@ -37,12 +37,23 @@ Options:
          format produced by the `rank' command.
 
 """)
+    elif what == 'distance':
+        sys.stderr.write("""Usage: sorter.py distance [options...] infile1 infile2
+
+Options:
+
+  -o F | Write output to file F (default: stdout).
+  -i I | Row identifiers are in column I (default: 1).
+  -k K | Read row order from file K (default: stdin). This file should be in the
+         format produced by the `rank' command.
+
+""")
     else:
         sys.stderr.write("""sorter.py - Sort tables based on values in one or more columns.
 
 Usage sorter.py command [options... ] infile [outfile]
 
-where `command' is one of: rank, order.
+where `command' is one of: rank, order, distance, avgdiff.
 
 If command is `rank', computes a score for each row, and will output a tab-delimited file 
 containing row identifiers in the first column and scores in the second one. The file 
@@ -169,6 +180,8 @@ class Sorter(Script.Script):
             self.doOrder()
         elif self.mode == 'distance':
             self.doDistance()
+        elif self.mode == 'avgdiff':
+            self.doDistance(distfun=Utils.avgdiff)
 
     def doRank(self):
         scorefunc = SCOREFUNCS[self.score]
@@ -226,13 +239,14 @@ class Sorter(Script.Script):
             out = sys.stdout
         try:
             for g in ranking:
-                out.write("\t".join(rows[g]) + "\n")
+                if g in rows:
+                    out.write("\t".join(rows[g]) + "\n")
         except IOError:
             return
         finally:
             out.close()
 
-    def doDistance(self):
+    def doDistance(self, distfun=Utils.distance):
         scorefunc = SCOREFUNCS[self.score]
         scores = []
         with open(self.infile, "r") as f1:
@@ -250,7 +264,7 @@ class Sorter(Script.Script):
                             return
                         values1 = Utils.colsToFloat(line1, self.scorecols)
                         values2 = Utils.colsToFloat(line2, self.scorecols)
-                        dist = Utils.distance(values1, values2)
+                        dist = distfun(values1, values2)
                         scores.append([gene1, dist])
                 except StopIteration:
                     pass

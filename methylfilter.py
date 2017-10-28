@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-## (c) 2014, Alberto Riva (ariva@ufl.edu)
+## (c) 2014-2017, Alberto Riva (ariva@ufl.edu)
 ## DiBiG, ICBR Bioinformatics, University of Florida
 
 import sys
@@ -41,6 +41,7 @@ Options:
  -s, --summary filename | Write to `filename' a summary showing the number of
                           sequences written to each output file.
  -gcg                   | Do not exclude GCG sites from analysis.
+ -gc                    | Output is based on GC methylation instead of CG.
 
 """)
 
@@ -56,6 +57,7 @@ class refDesc():
     CGpositions = []
     GCpositions = []
     numCGs = 0
+    numGCs = 0
     excludeGCG = True
 
     def __init__(self, ref, excludeGCG):
@@ -66,6 +68,7 @@ class refDesc():
         self.CGpositions = detectCG(ref, length, excludeGCG=self.excludeGCG)
         self.GCpositions = detectGC(ref, length, excludeGCG=self.excludeGCG)
         self.numCGs = len(self.CGpositions)
+        self.numGCs = len(self.GCpositions)
 
 class outFile():
     """A class that writes sequences whose methylation rate is in a specified range to a file."""
@@ -103,6 +106,7 @@ class mfrun():
     summaryFile = False         # Name of summary file, if desired
     summaryStream = None
     excludeGCG = True           # 
+    mode = "CG"
 
     def parseArgs(self, args):
         """Parse command-line arguments creating outfiles."""
@@ -124,6 +128,8 @@ class mfrun():
                 prev = "s"
             elif (arg == "-gcg"):
                 self.excludeGCG = False
+            elif arg == "-gc":
+                self.mode = "GC"
             elif self.infile == None:
                 self.infile = P.isFile(arg)
             else:
@@ -155,7 +161,10 @@ class mfrun():
         if self.reportFile:
             print "Writing report to {}".format(self.reportFile)
             self.reportStream = open(self.reportFile, "w")
-            self.reportStream.write("Sequence\t% CG Meth\tConv\tTot\t% GC Meth\tFilename\n")
+            if self.mode == "CG":
+                self.reportStream.write("Sequence\t% CG Meth\tConv\tTot\t% GC Meth\tFilename\n")
+            elif self.mode == "GC":
+                self.reportStream.write("Sequence\t% GC Meth\tConv\tTot\t% CG Meth\tFilename\n")
 
     def closeAll(self):
         """Close all output files."""
@@ -270,16 +279,19 @@ def main():
         sys.stderr.write("""No output files specified. Please use the -h option for usage.\n""")
         sys.exit(-4)
 
-    seqs = loadSequences(infile)
+    seqs = loadSequences(run.infile)
     rd = refDesc(seqs.next(), run.excludeGCG)   # reference sequence
     run.rd = rd
 
-    print "Reference sequence loaded from file `{}'.".format(infile)
+    print "Reference sequence loaded from file `{}'.".format(run.infile)
     if run.excludeGCG:
         print "Excluding GCG positions."
     else:
         print "Not excluding GCG positions."
-    print "{}bp, {} CG positions.".format(rd.length, rd.numCGs)
+    if run.mode == "CG":
+        print "{}bp, {} CG positions.".format(rd.length, rd.numCGs)
+    elif run.mode == "GC":
+        print "{}bp, {} GC positions.".format(rd.length, rd.numGCs)
 
     try:
         run.openAll()
@@ -300,12 +312,21 @@ def main():
                 GCp = 100 * (1.0 - (GCcnt * 1.0 / GCtot))
             else:
                 GCp = 0.0
-            o = run.findOutfile(CGp)
-            if o:
-                o.writeSeq(s)
-                run.report(s, CGp, CGcnt, CGtot, GCp, o)
-            else:
-                run.report(s, CGp, CGcnt, CGtot, GCp, None)
+            if run.mode == "CG":
+                o = run.findOutfile(CGp)
+                if o:
+                    o.writeSeq(s)
+                    run.report(s, CGp, CGcnt, CGtot, GCp, o)
+                else:
+                    run.report(s, CGp, CGcnt, CGtot, GCp, None)
+            elif run.mode == "GC":
+                o = run.findOutfile(GCp)
+                if o:
+                    o.writeSeq(s)
+                    run.report(s, GCp, GCcnt, GCtot, CGp, o)
+                else:
+                    run.report(s, GCp, GCcnt, GCtot, CGp, None)
+
     finally:
         run.closeAll()
 

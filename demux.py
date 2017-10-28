@@ -5,7 +5,7 @@ import os.path
 import Utils
 import Script
 
-def usage(what):
+def usage(what=None):
     sys.stderr.write("""demux.py - Operate on barcodes in fastq files
 
 Usage: demux.py detect [options] fastq

@@ -71,6 +71,17 @@ def distance(v1, v2):
 
     return math.sqrt(sum([dsq(*p) for p in zip(v1, v2)] ))
 
+def avgdiff(v1, v2):
+    """Average difference between vectors v1 and v2 (v1 - v2)."""
+    dsum = 0.0
+    nd = 0
+    for a, b in zip(v1, v2):
+        if a == None or b == None:
+            continue
+        dsum += (a - b)
+        nd += 1
+    return dsum / nd
+
 def colsToFloat(row, columns):
     """Returns a list containing the elements of `row' indexed by `columns' converted to floats.
 Invalid entries are returned as None."""
