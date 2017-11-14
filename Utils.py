@@ -7,7 +7,7 @@ import csv
 import math
 import gzip
 import time
-import pysam
+#import pysam
 import string
 import random
 
@@ -444,6 +444,6 @@ class Resampler():
 def test():
     r = Resampler(9,3)
     v = range(9)
-    print v
+    #print v
     return r.resample(v)
     #return r.resample([1,1,1])

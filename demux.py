@@ -224,20 +224,24 @@ class BarcodeMgr():
         self.barcodes[seq] = b
 
     def openAll(self, filename, filename2=None):
-        for b in self.barcodes.itervalues():
+        for b in self.barcodes.values():
             b.openStream(filename, filename2)
 
     def allFilenames(self):
         result = []
-        for b in self.barcodes.itervalues():
+        for b in self.barcodes.values():
             result.append(b.filename)
             if b.filename2:
                 result.append(b.filename2)
         return result
 
     def closeAll(self):
-        for b in self.barcodes.itervalues():
-            b.closeStream()
+        try:
+            for b in self.barcodes.itervalues():
+                b.closeStream()
+        except AttributeError:
+            for b in self.barcodes.values():
+                b.closeStream()
 
     def findBest(self, seq, maxmismatch=1):
         maxd = len(seq)
@@ -520,37 +524,59 @@ def doDistribute():
     finally:
         dm.closeAll()
 
-def doDistributeOld():
+def doDistribute2():
     outfiles1 = []
     outfiles2 = []
     outstreams1 = []
     outstreams2 = []
 
-    try:
-        sys.stderr.write("Distributing reads to:\n")
-        if P.nf == 2:
+    if not P.distrout:
+        P.distrout = "out"
 
-            for i in range(i, P.distr + 1):
-                outfiles1.append("{}.{}.R1.fastq.gz".format(P.distrout, i))
-                outfiles2.append("{}.{}.R2.fastq.gz".format(P.distrout, i))
-            for i in range(i, P.distr + 1):
+    sys.stderr.write("Distributing reads to:\n")
+    if P.nf == 2:
+
+        for i in range(1, P.distr + 1):
+            outfiles1.append("{}.{}.R1.fastq.gz".format(P.distrout, i))
+            outfiles2.append("{}.{}.R2.fastq.gz".format(P.distrout, i))
+
+        try:
+            for i in range(P.distr):
                 sys.stderr.write("  {}, {}\n".format(outfiles1[i], outfiles2[i]))
-                outstreams1.append(Utils.genOpen(outfiles1[i]), "w")
-                outstreams2.append(Utils.genOpen(outfiles2[i]), "w")
-            pfr = PairedFastqReader(P.fqleft, P.fqright)
+                outstreams1.append(Utils.genOpen(outfiles1[i], "w"))
+                outstreams2.append(Utils.genOpen(outfiles2[i], "w"))
+
+            in1 = Utils.genOpen(P.fqleft, "r")
+            in2 = Utils.genOpen(P.fqright, "r")
             i = 0
             while True:
-                pfr.nextRead()
-                if not pfr.stream:
+                r = in1.readline()
+                if not r:
                     break
-                
-
-        else:
-            for i in range(i, P.distr + 1):
-                sys.stderr.write("  {}\n".format(outfiles1[i]))
-                outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
-    finally:
-        print 1
+                o1 = outstreams1[i]
+                o2 = outstreams2[i]
+                o1.write(r)
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                i += 1
+                if i == P.distr:
+                    i = 0
+        finally:
+            in1.close()
+            in2.close()
+            for s in outstreams1:
+                s.close()
+            for s in outstreams2:
+                s.close()
+    else:
+        for i in range(i, P.distr + 1):
+            sys.stderr.write("  {}\n".format(outfiles1[i]))
+            outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
 
 ### Main
 
@@ -603,7 +629,7 @@ def main(args):
         fr.grep(bm, nameleft, nameright, P.leftTarget, P.rightTarget)
     
     elif P.mode == 'distr':
-        doDistribute()
+        doDistribute2()
         
 if __name__ == "__main__":
     args = sys.argv[1:]
