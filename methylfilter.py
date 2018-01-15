@@ -304,7 +304,7 @@ def main():
             nread = nread + 1
             (CGcnt, CGtot) = countCGconverted(rd, s)
             (GCcnt, GCtot) = countGCconverted(rd, s)
-            if GCtot > 0:
+            if CGtot > 0:
                 CGp = 100 * (1.0 - (CGcnt * 1.0 / CGtot)) # ensure we work with floats
             else:
                 CGp = 0.0

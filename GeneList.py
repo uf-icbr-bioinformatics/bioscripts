@@ -849,7 +849,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                         self.currGene.name = ann['gene_name']
                     else:
                         self.currGene.name = ann['gene_id']
-                        self.currGene.biotype = ann['gene_biotype']
+                    self.currGene.biotype = ann['gene_biotype']
                     # print "Adding {} to {}".format(self.currGene.ID, chrom)
                     # raw_input()
                     self.gl.add(self.currGene, chrom)

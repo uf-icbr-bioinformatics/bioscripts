@@ -127,6 +127,7 @@ def revcomp(seq):
     return rc
 
 def distance(s1, s2):
+    #print "distance {} {} \n".format(s1, s2)
     d = 0
     for i in range(len(s1)):
         if s1[i] != s2[i]:
@@ -189,6 +190,8 @@ class BarcodeMgr():
     def initFromFile(self, filename, rc=False, undet=False):
         with open(filename, "r") as f:
             for line in f:
+                if line[0] == '#':
+                    continue
                 line = line.rstrip("\r\n").split("\t")
                 if len(line) < 2:
                     continue
@@ -259,7 +262,7 @@ class BarcodeMgr():
         ranking.sort(key=lambda b:b.nhits, reverse=True)
 
         try:
-            sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
+            sys.stdout.write("#Name\tSeq\tHits\tPct\tFile1\tFile2\n")
             for b in ranking:
                 seq = b.seq
                 if P.revcomp:

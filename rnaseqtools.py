@@ -27,7 +27,7 @@ import Script
 def usage(what=None):
     progname = os.path.basename(sys.argv[0])
     if what == 'matrix':
-        sys.stderr.write("""Usage: {} matrix [-e] [-ercc filename] [-mix a,b,c...] files...
+        sys.stderr.write("""Usage: {} matrix [options] files...
 
 Combine columns from multiple files into a single data matrix. This command is equivalent to 
 rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options:
@@ -37,6 +37,11 @@ rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options
  -ercc filename | Load ERCC data from `filename', instead of using defaults.
  -mix a,b,c...  | Specify ERCC mix used by each sample. There should be one
                   value for each sample, either '1' or '2'.
+ -f F           | Omit genes with intra-condition variability higher than F (in log2 FC).
+                  Requires the -n option.
+ -u             | Invert the meaning of -F: output only the high-variability genes.
+ -n X,Y,Z,...   | Specifies the number of samples for each condition. Eg:
+                  -n 2,3 = samples 1-2 from condition A, samples 3-5 from condition B.
 
 """.format(progname))
 
@@ -115,6 +120,10 @@ class MatrixGenerator():
     mixes = []
     column = ""
     colidx = 0
+    maxfc = None
+    minval = False
+    condsmpls = []
+    filtover = True             # Filter genes over maxfc threshold?
 
     def __init__(self):
         self.rows = []
@@ -123,6 +132,7 @@ class MatrixGenerator():
         self.nercc = 0
         self.column = "expected_count"
         self.colidx = 4
+        self.condsmpls = []
 
     def parseArgs(self, args):
         files = []
@@ -130,6 +140,8 @@ class MatrixGenerator():
         ercc = None
         mix = []
         next = ""
+        condsmpls = None
+
         for a in args:
             if a == '-e':
                 e = True
@@ -142,16 +154,40 @@ class MatrixGenerator():
             elif next == '-mix':
                 mix = a
                 next = ""
-            elif a in ['-ercc', '-mix', '-c']:
+            elif next == '-f':
+                self.maxfc = float(a)
+                next = ""
+            elif next == '-n':
+                condsmpls = [ int(s) for s in a.split(",") ]
+                next = ""
+            elif next == '-m':
+                self.minval = float(a)
+                next = ""
+            elif a in ['-ercc', '-mix', '-c', '-n', '-f', '-m']:
                 next = a
+            elif a == "-u":
+                self.filtover = False
             else:
                 files.append(S.isFile(a))
         if files == []:
             S.usage(cmd)
         self.infiles = files
         self.ncols = len(files)
+        if condsmpls:
+            self.condsmpls = self.condIndexes(condsmpls)
         if e:
             self.initERCC(mix, ERCCfile=ercc)
+
+    def condIndexes(self, condsmpls):
+        result = []
+        idx = 1
+        for cs in condsmpls:
+            r = []
+            for i in range(cs):
+                r.append(idx)
+                idx += 1
+            result.append(r)
+        return result
 
     def initERCC(self, mixes=[], ERCCfile=None):
         """This method is called if we want ERCC normalization done before writing the
@@ -214,7 +250,7 @@ for genes/transcripts and ERCC controls are stored separately."""
                     fields = Utils.parseLine(f.readline())
                     row = self.rows[i]
                     if row[0] != fields[0]:
-                        ew("ERROR: wrong row order in file {}, expected {}, found {}.", infile, row[0], fields[0])
+                        ew("ERROR: wrong row order in file {}, expected {}, found {}.\n", infile, row[0], fields[0])
                         sys.exit(-1)
                     row[idx] = float(fields[self.colidx])
                 for i in range(self.nercc):
@@ -222,16 +258,65 @@ for genes/transcripts and ERCC controls are stored separately."""
                     row = self.erccrows[i]
                     E = self.isERCC(fields)
                     if row[0] != E:
-                        ew("ERROR: wrong row order in file {}, expected {}, found {}.", infile, row[0], E)
+                        ew("ERROR: wrong row order in file {}, expected {}, found {}.\n", infile, row[0], E)
                         sys.exit(-1)
                     row[idx] = float(fields[self.colidx])
             idx += 1
 
+    def rowMaxFC(self, row):
+        """Determine the highest log2(FC) between samples of the same condition."""
+        maxfc = 0
+        for idxs in self.condsmpls:
+            vmin = row[idxs[0]]
+            vmax = row[idxs[0]]
+            for idx in idxs[1:]:
+                x = row[idx]
+                if x < vmin:
+                    vmin = x
+                if x > vmax:
+                    vmax = x
+            if vmin > 0:
+                fc = math.log(vmax/vmin, 2)
+                if fc > maxfc:
+                    maxfc = fc
+        return maxfc
+
+    def rowMinAvg(self, row):
+        """Determine the smallest average between samples of the same condition."""
+        minavg = 100000000
+        for idxs in self.condsmpls:
+            s = 0
+            for i in idxs:
+                s += row[i]
+            a = s / len(idxs)
+            if a < minavg:
+                minavg = a
+        return minavg
+
     def writeDataMatrix(self):
         """Write the full (normalized) data matrix to stdout."""
+        nfiltered1 = 0
+        nfiltered2 = 0
+
         sys.stdout.write("\t" + "\t".join([ '"' + f + '"' for f in self.infiles]) + "\n")
         for r in self.rows:
+            if self.minval:
+                #if min(r[1:]) < self.minval:
+                if self.rowMinAvg(r) < self.minval:
+                    nfiltered1 += 1
+                    continue
+            if self.maxfc:
+                over = (self.rowMaxFC(r) > self.maxfc)
+                if over == self.filtover:
+                    nfiltered += 1
+                    continue
             sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
+        if nfiltered1 > 0:
+            ew("{} genes filtered because value < {}.\n", nfiltered1, self.minval)
+        if nfiltered2 > 0:
+            ew("{} genes filtered because variability > {}.\n", nfiltered2, self.maxfc)
+#        for r in self.erccrows:
+#            sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
 
     def ERCCnormalize(self):
         ew("Performing ERCC normalization. Mixes:\n")
@@ -493,7 +578,10 @@ class ExpMerger():
             out.write(g)
             for l in self.labels:
                 out.write("\t")
-                out.write(gdata[l])
+                if l in gdata:
+                    out.write(gdata[l])
+                else:
+                    out.write("0.0")
             out.write("\n")
 
     def run(self):

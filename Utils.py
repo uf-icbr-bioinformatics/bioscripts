@@ -181,6 +181,42 @@ def safeRemoveFile(filename):
         except OSError:
             pass
 
+def filterFile(infile, outfile, column, low=None, high=None, invert=False, absolute=False, preserveHeader=True, delim='\t'):
+    """Copy tab-delimited rows from `infile' to `outfile', testing the value in column `column' against `low' and `high'.
+A row is copied if the value is above `low' (if specified) and below `high' (if specified). If `invert' is true, the test 
+is inverted."""
+    nout = 0
+    colstr = (type(column).__name__ != 'int')
+    with open(outfile, "w") as out:
+        with open(infile, "r") as f:
+            if preserveHeader or colstr:
+                hdr = f.readline()
+                if preserveHeader:
+                    out.write(hdr)
+                if colstr:
+                    parsed = hdr.rstrip("\r\n").split(delim)
+                    if column in parsed:
+                        column = parsed.index(column)
+                    else:
+                        sys.stderr.write("Column `{}' not found in header of file {}.\n".format(column, infile))
+                        return False
+            for line in f:
+                parsed = line.rstrip("\r\n").split(delim)
+                x = safeFloat(parsed[column])
+                if absolute:
+                    x = abs(x)
+                good = True
+                if low and x < low:
+                    good = False
+                if high and x > high:
+                    good = False
+                if invert:
+                    good = not good
+                if good:
+                    out.write(line)
+                    nout += 1
+    return nout
+
 def filenameNoExt(s):
     return os.path.splitext(os.path.basename(s))[0]
 
@@ -198,6 +234,9 @@ def f2dd(x):
 
 def f3dd(x):
     return "{:.3f}".format(x)
+
+def f4dd(x):
+    return "{:.4f}".format(x)
 
 def up(x):
     return "<span class='upreg'>{}</span>".format(x)

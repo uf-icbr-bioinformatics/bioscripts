@@ -16,12 +16,13 @@ where `command' can be one of: makedb, classify, region, transcripts, overlap.
 
 Common options:
 
-  -db D  | Load gene database from database file D. D can be in one of the following formats:
-           - gtf (extensions .gtf, .GTF)
-           - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
-           - genbank (extension .gb)
-           - UCSC refFlat (extension .csv)
-           - sqlite3 (extension .db)
+  -o  O | Write output to file O (default: stdout)
+  -db D | Load gene database from database file D. D can be in one of the following formats:
+          - gtf (extensions .gtf, .GTF)
+          - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
+          - genbank (extension .gb)
+          - UCSC refFlat (extension .csv)
+          - sqlite3 (extension .db)
 
 Use genes.py -h <command> to get help on <command> and its specific options.
 
@@ -30,7 +31,7 @@ Use genes.py -h <command> to get help on <command> and its specific options.
     elif what == 'makedb':
         sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
 
-Usage: genes.py classify [options] dbfile
+Usage: genes.py makedb [options] dbfile
 
 Convert a gene database in gtf/gff/genbank/refFlat format to sqlite3 format.
 
@@ -45,7 +46,9 @@ Options
 
 Usage: genes.py classify [options] chrom:position ... 
 
-Classify the specified chromosome positions according to the transcripts they fall in.
+Classify the specified chromosome positions according to the transcripts they fall in. If
+an argument has the form @filename:col, read regions from column `col' of file `filename'
+(col defaults to 1).
 
 Options:
 
@@ -89,15 +92,15 @@ Options:
 Usage: genes.py overlap [options] bedfile spec...
 
 This command reads regions from BED file `bedfile', and writes to standard output those that 
-overlap a region associated with one or more of the transcripts in the current database. The transcript
-region is specified using the same options as for the `region' command. If `spec' is the string 
-`all', considers all  genes or transcripts in the database. If a spec has the form @filename,
-transcript ids are read from the first column of file `filename', one per line (a different 
-column can be specified using @filename:col). Otherwise, each `spec' is treated as a gene or 
-transcript identifier.
+overlap a region associated with one or more of the genes (or transcripts if -t is specified)
+in the current database. The transcript region is specified using the same options as for the 
+`region' command. If `spec' is the string `all', considers all genes or transcripts in the 
+database. If a spec has the form @filename, gene or transcript ids are read from the first 
+column of file `filename', one per line (a different column can be specified using @filename:col). 
+Otherwise, each `spec' is treated as a gene or transcript identifier.
 
-A region from the BED file is written to output if its overlap with at least one of the transcript
-regions is larger than the number of bases specified with the 
+A region from the BED file is written to output if its overlap with at least one of the
+regions is larger than the number of bases specified with the -b option.
 
 Options:
 
@@ -107,6 +110,7 @@ Options:
            to the same value (default: {}).
   -dup N | Upstream distance from gene (default: {}).
   -ddn N | Downstream distance from gene (default: {}).
+  -t     | Show transcripts instead of genes.
   -b B   | Minimum number of bases in minimum overlap (default: {}).
 
 """.format(Prog.regwanted, Prog.updistance, Prog.updistance, Prog.dndistance, Prog.ovbases))
@@ -127,6 +131,7 @@ treated as a gene identifier, and its transcripts are printed.
 ### Program object
 
 class Prog(Script.Script):
+    outfile = None
     source = None
     sourcetype = ""
     args = []
@@ -137,6 +142,7 @@ class Prog(Script.Script):
     gl = None                   # Gene list
     mode = "g"                  # used to be cltrans - also "t" for transcript-level, "s" for summary
     ovbases = 100               # Number of overlap bases
+    addBedFields = False        # If True, add contents of original BED file
     excel = False
 
     def parseArgs(self, args):
@@ -148,6 +154,9 @@ class Prog(Script.Script):
             if next == '-db':
                 self.source = P.isFile(a)
                 self.sourcetype = 'DB'
+                next = ""
+            elif next == '-o':
+                self.outfile = a
                 next = ""
             elif next == '-d':
                 self.updistance = P.toInt(a)
@@ -174,12 +183,14 @@ class Prog(Script.Script):
                     next = ""
                 else:
                     P.errmsg('BADREGION')
-            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b"]:
+            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o"]:
                 next = a
             elif a == '-t':
                 self.mode = "t"
             elif a == '-s':
                 self.mode = "s"
+            elif a == "-a":
+                self.addBedFields = True
             elif cmd:
                 self.args.append(a)
             else:
@@ -354,14 +365,20 @@ def doOverlap():
         P.errmsg()
     bedfile = P.args[0]
     if P.args[1] == "all":
-        source = P.gl.allTranscriptNames()
+        if P.mode == "t":
+            source = P.gl.allTranscriptNames()
+        else:
+            source = P.gl.allGeneNames()
     else:
         source = P.args[1:]
 
     regions = {}
     sys.stderr.write("Computing regions... ")
     for name in source:
-        tx = P.gl.findTranscript(name)
+        if P.mode == "t":
+            tx = P.gl.findTranscript(name)
+        else:
+            tx = P.gl.findGene(name)
         if tx:
             reg = tx.getRegion(P)
             if not reg:
@@ -387,7 +404,10 @@ def doOverlap():
                 overs.sort(key=lambda n: n[0])
                 for ovr in overs:
                     ov = ovr[1]
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
+                    if P.addBedFields:
+                        sys.stdout.write("\t" + "\t".join(line[1:]))
+                    sys.stdout.write("\n")
 
 def doTranscripts():
     if len(P.args) == 0:
@@ -420,37 +440,45 @@ def doClassify():
 
     sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
 
-    if P.mode == "t":
-        sys.stdout.write("Gene\tID\tAccession\tClass\n")
-    elif P.mode == "g":
-        sys.stdout.write("Gene\tID\tClass\n")
-    
-    for reg in regions:
-        if type(reg).__name__ == 'str':
-            reg = parseRegion(reg)
-        pos = reg[1]
-        genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+    if P.outfile:
+        out = open(P.outfile, "w")
+    else:
+        out = sys.stdout
+
+    try:
         if P.mode == "t":
-            for g in genes:
-                for tr in g.transcripts:
-                    c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                    sys.stdout.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+            out.write("Gene\tID\tAccession\tClass\n")
         elif P.mode == "g":
-            for g in genes:
-                name = g.name
-                c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                sys.stdout.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
-        elif P.mode == "s":
-            if len(genes) == 0:
-                C.add('o')
-            else:
+            out.write("Gene\tID\tClass\n")
+
+        for reg in regions:
+            if type(reg).__name__ == 'str':
+                reg = parseRegion(reg)
+            pos = reg[1]
+            genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+            if P.mode == "t":
                 for g in genes:
+                    for tr in g.transcripts:
+                        c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                        out.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+            elif P.mode == "g":
+                for g in genes:
+                    name = g.name
                     c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                    for x in c:
-                        C.add(x)
-    if P.mode == "s":
-        C.report(sys.stdout)
-    
+                    out.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
+            elif P.mode == "s":
+                if len(genes) == 0:
+                    C.add('o')
+                else:
+                    for g in genes:
+                        c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                        for x in c:
+                            C.add(x)
+        if P.mode == "s":
+            C.report(out)
+    finally:
+        out.close()
+
 def doSplit():
     C = Classifier()
     maxd = max(P.updistance, P.dndistance)
