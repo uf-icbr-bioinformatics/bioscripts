@@ -200,7 +200,10 @@ class AvgTerm(ReturnTerm):
             self.nvals += 1
 
     def result(self):
-        return 1.0*self.sum/self.nvals
+        if self.nvals > 0:
+            return 1.0*self.sum/self.nvals
+        else:
+            return 0.0
         
 class StdevTerm(ReturnTerm):
     sum = 0
@@ -300,7 +303,7 @@ used in recipes, and '-h examples' to see examples of recipes.
 
 Options:
   -n N | Set number of columns in input file to N
-  -d   | Dump recipes before executing running.
+  -d   | Dump recipes before executing them.
   -p   | Skip the first line in the input file (header)
   -P   | Like -p, but prints the first line at the beginning of output.
 
@@ -364,6 +367,7 @@ class Driver(Script.Script):
     header = None
     skipHeader = False
     printHeader = False
+    printVariables = True
 
     # Default terms
     printTerm = None
@@ -394,6 +398,8 @@ class Driver(Script.Script):
             elif a == '-P':
                 self.skipHeader = True
                 self.printHeader = True
+            elif a == '-q':
+                self.printVariables = False
             elif na == 0:
                 if a[0] == '@':
                     with open(a[1:], 'r') as f:
@@ -514,7 +520,8 @@ to their numeric representation if possible."""
 
     def printReturns(self):
         if len(self.returnTerms) > 0:
-            self.out.write("\t".join([rt.source for rt in self.returnTerms]) + "\n")
+            if self.printVariables:
+                self.out.write("\t".join([rt.source for rt in self.returnTerms]) + "\n")
             results = [str(rt.result()) for rt in self.returnTerms]
             self.out.write("\t".join(results) + "\n")
 

@@ -7,7 +7,7 @@ import csv
 import math
 import gzip
 import time
-#import pysam
+import pysam
 import string
 import random
 
@@ -84,8 +84,11 @@ def avgdiff(v1, v2):
 
 def colsToFloat(row, columns):
     """Returns a list containing the elements of `row' indexed by `columns' converted to floats.
-Invalid entries are returned as None."""
-    return [ safeFloat(row[c]) for c in columns ]
+Invalid entries are returned as None. If `columns' is None, use all columns."""
+    if columns:
+        return [ safeFloat(row[c]) for c in columns ]
+    else:
+        return [ safeFloat(x) for x in row ]
 
 def _parseColspecAux(cs):
     p = cs.find("+")
@@ -227,7 +230,10 @@ def fmt(n):
     return "{:,}".format(n)
 
 def pct(x, den):
-    return "{:.2f}%".format(x*100.0/den)
+    if den == 0:
+        return "0.0"
+    else:
+        return "{:.2f}%".format(x*100.0/den)
 
 def f2dd(x):
     return "{:.2f}".format(x)

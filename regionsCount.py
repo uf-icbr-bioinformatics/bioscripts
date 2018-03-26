@@ -44,6 +44,7 @@ class BAMreader(object):
     qual = 10
     nalignments = 0
     vectsize = 0
+    rpkm_factor = 1.0
 
     def setBamfile(self, bamfile):
         self.bamfile = bamfile
@@ -90,6 +91,7 @@ class BAMreader(object):
                 end     = int(parsed[2])
                 strand  = parsed[3]
                 regsize = end - start
+                self.rpkm_factor = 1000000000.0 / (regsize * self.nalignments)
                 vec     = self.getCovVector(chrom, start, end, regsize)
                 res.init(regsize, self.vectsize)
                 ovec    = res.resample(vec)
@@ -107,12 +109,12 @@ class BAMreader(object):
                     out.write("\t" + str(v))
                 out.write("\n")
 
-    def getCovVector(self,chrom, start, end, regsize):
+    def getCovVector(self, chrom, start, end, regsize):
         vector = [0]*regsize
         for pc in self.aln.pileup(chrom, start, end):
             pos = pc.pos - start
             if pos >= 0 and pos < regsize:
-                vector[pos] = pc.n
+                vector[pos] = pc.n * self.rpkm_factor
         return vector
 
 def parseArgs(args):

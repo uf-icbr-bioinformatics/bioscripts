@@ -109,12 +109,23 @@ def score_M(values):
             m = v
     return m
 
+def score_e(values):
+    values = values[1:]
+    n = len(values)
+    n2 = n / 2
+    a = float(sum(values[:10]) + sum(values[-10:]))
+    b = sum(values[n2-25:n2+25])
+    if a == 0.0:
+        a = 0.0001
+    return b/a
+
 SCOREFUNCS = {'A': score_A,
               'a': score_a,
               'S': score_S,
               's': score_s,
               'm': score_m,
-              'M': score_M}
+              'M': score_M,
+              'e': score_e}
 
 ### Main class
 
@@ -169,7 +180,7 @@ class Sorter(Script.Script):
 
         if self.infile == None:
             self.errmsg(self.NOFILE)
-        if self.mode == 'rank' and self.scorecols == None:
+        if self.mode == 'rank' and self.score != 'e' and self.scorecols == None:
             self.errmsg(self.NOCOLS)
         return True
 
@@ -205,6 +216,8 @@ class Sorter(Script.Script):
         try:
             for sc in scores:
                 out.write("{}\t{}\n".format(*sc))
+        except IOError:
+            pass
         finally:
             out.close()
 

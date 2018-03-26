@@ -17,7 +17,7 @@ Options:
 -bn name      | Track name for BED file
 -r reportfile | Filename for by-chromosome report
 -g gap        | Set gap between regions (default: {})
--s score      | Specify minimum score (default: {})
+-s score      | Specify minimum average coverage (default: {})
 -c cov        | Specify minimum coverage (default: {})
 
 """.format(PTB.maxGap, PTB.minScore, PTB.minCov))
@@ -38,7 +38,7 @@ class PTB():
     repstream = None
 
     # Output control
-    trackName = "coverage"
+    trackName = None
     maxGap = 10
     minCov = 0
     minScore = 0.0
@@ -147,7 +147,7 @@ class PTB():
     def main(self):
         instream = self.instream
         outstream = self.outstream
-        if self.bedfile:
+        if self.bedfile and self.trackName:
             self.bedstream.write("track type=bedGraph name={}\n".format(self.trackName))
         if self.outfile:
             outstream.write("Chrom\tStart\tEnd\tLength\tCoverage\tAvgCov\n")

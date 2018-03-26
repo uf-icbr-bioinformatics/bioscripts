@@ -122,7 +122,8 @@ class Genelist():
 
     def genesOnChrom(self, chrom):
         if chrom in self.genes:
-            return self.selectChrom(chrom)
+            l = self.selectChrom(chrom)
+            return l
         else:
             return []
 
@@ -453,6 +454,16 @@ class Transcript():
             self.exons.append((introns[i][1], introns[i+1][0]))
         self.exons.append((introns[-1][1], self.txend))
 
+    def updateCDS(self, cdsstart, cdsend):
+        if self.cdsstart:
+            self.cdsstart = min(self.cdsstart, cdsstart)
+        else:
+            self.cdsstart = cdsstart
+        if self.cdsend:
+            self.cdsend = max(self.cdsend, cdsend)
+        else:
+            self.cdsend = cdsend
+
     def setCDS(self, cdsstart, cdsend):
         """Set the CDS of this transcript to `cdsstart' and `cdsend'. This also sets the
 smallrects and largerects lists."""
@@ -668,6 +679,16 @@ class Gene():
         if self.start and self.end:
             if params.regwanted == 'b':
                 return (self.start, self.end)
+            elif params.regwanted == 'B':
+                if self.strand == 1:
+                    return (self.start - params.updistance, self.end + params.dndistance)
+                else:
+                    return (self.start - params.dndistance, self.end + params.updistance)
+            elif params.regwanted == 'p':
+                if self.strand == 1:
+                    return (self.start - params.updistance, self.start)
+                else:
+                    return (self.end, self.end + params.dndistance)
             elif params.regwanted == 'u':
                 if self.strand == 1:
                     return (self.start - params.updistance, self.start + params.dndistance)
@@ -716,8 +737,9 @@ class GeneLoader():
             return False
         if chrom.find("random") > 0:
             return False
-        if not chrom.startswith('chr') or chrom.startswith('Chr'):
-            chrom = "chr" + chrom
+        if chrom.startswith('chr') or chrom.startswith('Chr'):
+            return chrom
+        chrom = "chr" + chrom
         return chrom
 
     def load(self, sort=True, index=True, preload=True):
@@ -856,6 +878,8 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
 
                 elif btype == 'transcript':
                     txid = ann['transcript_id']
+                    if self.currTranscript:
+                        self.currTranscript.setCDS(self.cdsstart, self.cdsend) # Seems redundant, but we can only do this after all exons have been collected
                     self.currTranscript = Transcript(txid, chrom, strand, int(line[3]), int(line[4])) # clone gene into transcript
                     #self.currTranscript.name    = self.currGene.name
                     self.currTranscript.geneid  = self.currGene.geneid
@@ -868,11 +892,13 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                 elif btype == 'CDS':
                     start = int(line[3])
                     end   = int(line[4])
-                    self.currTranscript.setCDS(start, end)
+                    #self.currTranscript.setCDS(start, end)
+                    self.currTranscript.updateCDS(start, end)
                 elif btype == 'exon':
                     start = int(line[3])
                     end   = int(line[4])
                     self.currTranscript.addExon(start, end)
+        self.currTranscript.setCDS(self.cdsstart, self.cdsend) # Seems redundant, but we can only do this after all exons have been collected
 
 class GFFloader(GeneLoader):
 
@@ -922,6 +948,8 @@ class GFFloader(GeneLoader):
                     ann   = self.parseAnnotations(line[8])
                     gid   = self.cleanID(Utils.dget('ID', ann))
                     self.currGene = Gene(gid, chrom, strand)
+                    self.currGene.start = int(line[3])
+                    self.currGene.end   = int(line[4])
                     self.currGene.name = Utils.dget('Name', ann, "")
                     self.currGene.biotype = Utils.dget('biotype', ann)
                     self.gl.add(self.currGene, chrom)
@@ -930,6 +958,8 @@ class GFFloader(GeneLoader):
                     ann = self.parseAnnotations(line[8])
                     tid = self.cleanID(Utils.dget('ID', ann))
                     pid = self.cleanID(Utils.dget('Parent', ann))
+                    if self.currTranscript:
+                        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
                     self.currTranscript = Transcript(tid, chrom, strand, int(line[3]), int(line[4]))
                     self.currTranscript.name = Utils.dget('Name', ann, "")
                     self.currTranscript.biotype = Utils.dget('biotype', ann)
@@ -955,10 +985,11 @@ class GFFloader(GeneLoader):
                     if pid == self.currTranscript.ID:
                         start = int(line[3])
                         end   = int(line[4])
-                        self.currTranscript.setCDS(start, end)
+                        #self.currTranscript.setCDS(start, end)
+                        self.currTranscript.updateCDS(start, end)
                     else:
                         orphans += 1
-
+        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
         sys.stderr.write("Orphans: {}\n".format(orphans))
 
 class DBloader(GeneLoader):
@@ -1013,4 +1044,16 @@ def initializeDB(filename):
         conn.execute("CREATE TABLE Source (filename VARCHAR, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);")
     finally:
         conn.close()
+
+### Top level
+
+def loadGenes(filename, preload=True):
+    loaderClass = getLoader(filename)
+    if not loaderClass:
+        return None
+    loader = loaderClass(filename)
+    sys.stderr.write("Loading genes database from {}... ".format(filename))
+    gl = loader.load(preload=preload)
+    sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
+    return gl
 

@@ -229,12 +229,15 @@ def readRegions(atfile):
     afr = Utils.AtFileReader(atfile)
     while True:
         line = afr.stream.readline()
-        if line == '':
+        if not line:
             afr.stream.close()
             return regs
         if line[0] != afr.ignorechar:
             line = line.rstrip("\r\n").split("\t")
-            regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
+            try:
+                regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
+            except ValueError:
+                pass
 
 ### Classifier    
 
@@ -354,7 +357,7 @@ def findOverlapping(start, end, regions, minover):
     for reg in regions:
         if reg[0] > end:
             break
-        if (start <= reg[0] <= end) or (start <= reg[1] <= end):
+        if (start <= reg[0] <= end) or (start <= reg[1] <= end) or (reg[0] <= start <= end <= reg[1]):
             overlap = min(end, reg[1]) - max(start, reg[0])
             if overlap >= minover:
                 result.append((overlap, reg))
@@ -396,8 +399,12 @@ def doOverlap():
         reader = Utils.CSVreader(f)
         for line in reader:
             chrom = line[0]
-            start = int(line[1])
-            end   = int(line[2])
+            start = Utils.safeInt(line[1])
+            end   = Utils.safeInt(line[2])
+            if start is None or end is None:
+                continue
+            if chrom not in regions:
+                continue
             txregions = regions[chrom]
             overs = findOverlapping(start, end, txregions, P.ovbases)
             if overs:
