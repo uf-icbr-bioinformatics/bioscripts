@@ -177,7 +177,7 @@ class Opts():
                         hdr = False
                     else:
                         nread += 1
-                        data = line.split("\t")
+                        data = line.rstrip("\r\n").split("\t")
                         # print data
                         gid = data[idcol]
                         gval = data[datacol]

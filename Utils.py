@@ -3,6 +3,7 @@
 
 import os
 import os.path
+import sys
 import csv
 import math
 import gzip
@@ -313,8 +314,8 @@ class CSVreader():
 
     def next(self):
         row = self._reader.next()
-        if len(row) == 0 or row[0][0] == self.ignorechar:
-            return self.next()
+        while len(row) == 0 or row[0][0] == self.ignorechar:
+            row = self._reader.next()
         else:
             return row
 
@@ -485,6 +486,245 @@ class Resampler():
             # print "{} {} {}".format(i, self.idxs2[i], self.idxs1[i])
             # self.vec2[self.idxs2[i]] += vec1[self.idxs1[i]] * self.q
         return self.vec2
+
+class CircBuf():
+    """A simple circular buffer. Objects are added to the buffer with the add() method, and
+retrieved with the get() method. The current() method returns the first element in the buffer
+without removing it."""
+    size = 0
+    data = None
+    aptr = 0
+    bptr = 0
+
+    def __init__(self, size=1000):
+        self.size = size
+        self.data = [None]*size
+        self.aptr = 0
+        self.bptr = 0
+
+    def dump(self):
+        sys.stderr.write("{}, a={}, b={}\n".format(self.data, self.aptr, self.bptr))
+
+    def get(self):
+        if self.aptr == self.bptr:
+            return None
+        v = self.data[self.aptr]
+        self.data[self.aptr] = None
+        self.aptr += 1
+        if self.aptr == self.size:
+            self.aptr = 0
+        return v
+
+    def current(self):
+        if self.aptr == self.bptr:
+            return None
+        return self.data[self.aptr]
+
+    def add(self, v):
+        b = self.bptr
+        self.data[self.bptr] = v
+        self.bptr += 1
+        if self.bptr == self.size:
+            self.bptr = 0
+        if self.bptr == self.aptr:
+            raise "Error: circular buffer full!"
+        return b
+
+class Cons():
+    """Let's reimplement CONS in Python..."""
+    car = None
+    cdr = None
+
+    def __init__(self, car, cdr=None):
+        self.car = car
+        self.cdr = cdr
+
+class LinkedList():
+    """This object implements a linked list based on Cons(). Elements are added
+at the front of the list with push() and removed with pop(). insert() adds an
+element into a sorted list in the correct position. Specialize the smaller()
+method to specify ordering."""
+    top = None
+    nconsed = 0
+
+    def allocate(self, car, cdr=None):
+        self.nconsed += 1
+        return Cons(car, cdr)
+
+    def deallocate(self, c):
+        pass
+
+    def preallocate(self, n):
+        pass
+
+    def smaller(self, a, b):
+        return (a < b)
+
+    def length(self):
+        c = 0
+        curr = self.top
+        while True:
+            if curr is None:
+                return c
+            curr = curr.cdr
+            c += 1
+
+    def current(self):
+        if self.top:
+            return self.top.car
+        else:
+            return None
+
+    def push(self, v):
+        c = self.allocate(v, self.top)
+        self.top = c
+
+    def pop(self):
+        if self.top:
+            c = self.top
+            self.top = c.cdr
+            return c
+        else:
+            return None
+
+    def insert(self, v):
+        """Insert value v in the appropriate place in this linked list. The 
+smaller() method is used to determine ordering."""
+        if self.top is None:
+            self.top = self.allocate(v)
+            return self.top
+
+        p = self.top        # Current item
+        if self.smaller(v, p.car):
+            new = self.allocate(v, p)
+            self.top = new
+            return new
+
+        return self.insertRec(p, v)
+
+    def insertRec(self, p, v):
+        while True:
+            cdr = p.cdr
+            if cdr is None:     # End of list?
+                p.cdr = self.allocate(v)
+                return
+            if self.smaller(v, cdr.car): # v goes between current and next
+                l = self.allocate(v, cdr)
+                p.cdr = l
+                return l
+            # Else, move forward
+            p = cdr
+
+    def dump(self, p, out=sys.stderr):
+        if p is None:
+            p = self.top
+        if p is None:
+            out.write("()\n")
+            return
+        out.write("(")
+        while True:
+            out.write("{}".format(p.car))
+            if p.cdr:
+                out.write(" ")
+                p = p.cdr
+            else:
+                out.write(")\n")
+                return
+    
+class LinkedListPool(LinkedList):
+    """This list keeps unused conses in a pool. When a new cons is needed,
+it is retrieved from the pool, and when it is not needed anymore it can be
+returned to the pool using the deallocate() method. The pool can be initialized
+with the preallocate() method."""
+    pool = None
+
+    def preallocate(self, n):
+        for i in range (n):
+            self.nconsed += 1
+            self.pool = Cons(None, self.pool)
+
+    def allocate(self, car, cdr=None):
+        c = self.pool
+        if c:
+            self.pool = c.cdr
+            c.car = car
+            c.cdr = cdr
+            return c
+        else:
+            self.nconsed += 1
+            return Cons(car, cdr)
+
+    def deallocate(self, c):
+        c.car = None
+        c.cdr = self.pool
+        self.pool = c
+
+class GenomicWindower():
+    window = 100
+    chrom = None
+    start = 0                   # Start of current window
+    end = 0                     # End of current window
+    end2 = 0                    # End of window after the current one
+    data = []                   # Data contained in current window
+
+    def __init__(self, window, out=None):
+        self.window = window
+        self.data = []
+        self.out = out
+
+    def open(self, echrom, epos, entry):
+        self.chrom = echrom
+        self.start = epos
+        self.end = epos + self.window
+        self.end2 = self.end + self.window
+        self.data = [entry]
+        
+    def close(self):
+        if self.data:
+            self.outputWindow()
+
+    def outputWindow(self):
+        if self.out:
+            self.out.write("{}\t{}\t{}\t{}\n".format(self.chrom, self.start, self.end, len(self.data)))
+
+    def nextBlock(self, echrom, epos):
+        if self.out:
+            self.out.write("fixedStep chrom={} start={} step={} span={}\n".format(echrom, epos, self.window, self.window))
+
+    def add(self, entry):
+        echrom = entry[0]
+        epos = entry[1]
+
+        # Just starting? Open window.
+        if self.chrom is None:
+            self.open(echrom, epos, entry)
+            self.nextBlock(echrom, epos)
+            return entry
+
+        # Are we starting a new chrom? Output last window of 
+        # previous one and open new window.
+        if self.chrom != echrom:
+            self.outputWindow()
+            self.open(echrom, epos, entry)
+            self.nextBlock(echrom, epos)
+            return entry
+
+        # Are we still inside the window? If so, add this.
+        if epos < self.end:
+            self.data.append(entry)
+            return entry
+
+        # Are we in next window? Open consecutive window (without block)
+        if epos < self.end2:
+            self.outputWindow()
+            self.open(echrom, self.end, entry)
+            return entry
+
+        # Else: new block, new window.
+        self.outputWindow()
+        self.open(echrom, epos, entry)
+        self.nextBlock(echrom, epos)
+            
 
 def test():
     r = Resampler(9,3)

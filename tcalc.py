@@ -5,7 +5,7 @@ import csv
 import ast
 import math
 import gzip
-from Utils import genOpen, convertValue
+from Utils import genOpen, convertValue, dget
 import Script
 
 ### filter C1=I set f=C1+C2 return avg(f)
@@ -117,10 +117,10 @@ class PrintTerm(Term):
         out = self.parent.out
         bdg = self.parent.bindings
         bdg['CM'] += 1
-        out.write(str(bdg[self.variables[0]]))
+        out.write(str(dget(self.variables[0], bdg, default=self.variables[0])))
         for v in self.variables[1:]:
             out.write("\t")
-            out.write(str(bdg[v]))
+            out.write(str(dget(v, bdg, default=v)))
         out.write("\n")
 
     def dump(self):
@@ -306,6 +306,7 @@ Options:
   -d   | Dump recipes before executing them.
   -p   | Skip the first line in the input file (header)
   -P   | Like -p, but prints the first line at the beginning of output.
+  -q   | Do not print variable names in output.
 
 """)
     elif what == 'terms':
@@ -453,7 +454,7 @@ class Driver(Script.Script):
                 self.addTerm(SetTerm(w))
             elif mode == "print":
                 if self.printTerm == None:
-                    sys.stderr.write("Adding PRINT term `{}'\n".format(w))
+                    # sys.stderr.write("Adding PRINT term `{}'\n".format(w))
                     pt = PrintTerm(w)
                     self.addTerm(pt)
                     self.printTerm = pt

@@ -137,7 +137,9 @@ class Cov():
             try:
                 for pileupcolumn in bf.pileup(self.wanted):
                     if pileupcolumn.n > self.mincov:
-                        self.add(pileupcolumn.reference_name, pileupcolumn.pos, pileupcolumn.n, Tot)
+                        refname = bf.getrname(pileupcolumn.reference_id)
+                        # self.add(pileupcolumn.reference_name, pileupcolumn.pos, pileupcolumn.n, Tot)
+                        self.add(refname, pileupcolumn.pos, pileupcolumn.n, Tot)
             except KeyboardInterrupt:
                 pass
             except ValueError:

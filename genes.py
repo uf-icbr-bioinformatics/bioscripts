@@ -186,9 +186,15 @@ class Prog(Script.Script):
             elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o"]:
                 next = a
             elif a == '-t':
-                self.mode = "t"
+                if self.mode == "s":
+                    self.mode = "st"
+                else:
+                    self.mode = "t"
             elif a == '-s':
-                self.mode = "s"
+                if self.mode == "t":
+                    self.mode = "st"
+                else:
+                    self.mode = "s"
             elif a == "-a":
                 self.addBedFields = True
             elif cmd:
@@ -224,7 +230,9 @@ will be equal to the second one."""
         return None
 
 def readRegions(atfile):
-    """Read regions from a file indicated as @filename:col."""
+    """Read regions from a file indicated as @filename:col. Lines that don't have
+the required number of columns or that contains start and end positions that are
+not numbers are silently ignored."""
     regs = []
     afr = Utils.AtFileReader(atfile)
     while True:
@@ -237,6 +245,8 @@ def readRegions(atfile):
             try:
                 regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
             except ValueError:
+                pass
+            except IndexError:
                 pass
 
 ### Classifier    
@@ -481,7 +491,20 @@ def doClassify():
                         c = g.classifyPosition(pos, P.updistance, P.dndistance)
                         for x in c:
                             C.add(x)
-        if P.mode == "s":
+            elif P.mode == "st":
+                if len(genes) == 0:
+                    C.add('o')
+                else:
+                    for g in genes:
+                        for tr in g.transcripts:
+                            c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                            if c:
+                                for x in c:
+                                    C.add(x)
+                            else:
+                                C.add('o')
+                
+        if "s" in P.mode:
             C.report(out)
     finally:
         out.close()

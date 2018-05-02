@@ -5,13 +5,16 @@ import os.path
 import Utils
 import Script
 
+__doc__ = """Operate on barcodes in fastq files"""
+
 def usage(what=None):
-    sys.stderr.write("""demux.py - Operate on barcodes in fastq files
+    sys.stderr.write("""demux.py - {}
 
 Usage: demux.py detect [options] fastq
        demux.py split [options] fastq1 [fastq2]
        demux.py grep [options] fastq1 [fastq2]
        demux.py distr [options] fastq1 [fastq2]
+       demux.py distr [options] fasta
 
 The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
 the input file is assumed to be in fastq format and the barcodes are extracted from 
@@ -33,6 +36,9 @@ pattern, in either the left or right mate of each pair. Use -lt to specify the p
 to be searched for in the left mate, and -rt for the right mate (if not specified, defaults
 to reverse-complement of -lt).
 
+The `distr' command distributes the reads in the input file(s) into D different files, where
+D is specified with the -d option.
+
 Options:
 
   -b FILE | File containing barcode sequences
@@ -47,7 +53,7 @@ Options:
   -d D    | Number of files to distribute reads to (default: {})
   -o O    | Prefix for files for distributed reads.
 
-""".format(Demux.maxmismatch, Demux.ndetect, Demux.minpct, Demux.distr))
+""".format(__doc__, Demux.maxmismatch, Demux.ndetect, Demux.minpct, Demux.distr))
 
 ### Program object
 
@@ -140,7 +146,7 @@ def revcomp(seq):
 def distance(s1, s2):
     #print "distance {} {} \n".format(s1, s2)
     d = 0
-    for i in range(len(s1)):
+    for i in range(min(len(s1), len(s2))):
         if s1[i] != s2[i]:
             d += 1
     # print "{} {}: {}".format(s1, s2, d)
@@ -581,6 +587,36 @@ def doDistribute2():
             sys.stderr.write("  {}\n".format(outfiles1[i]))
             outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
 
+def doDistributeFasta():
+    outfiles = []
+    outstreams = []
+
+    if not P.distrout:
+        P.distrout = "out"
+
+    sys.stderr.write("Distributing sequences to {} FASTA files.\n".format(P.distr))
+    for i in range(1, P.distr + 1):
+        name = "{}.{}.fasta".format(P.distrout, i)
+        outfiles.append(name)
+        outstreams.append(Utils.genOpen(name, "w"))
+    try:
+        FR = FastaReader(P.fqleft)
+        i = 0
+        while True:
+            r = FR.nextRead()
+            if not r:
+                break
+            o = outstreams[i]
+            o.write(">{}\n{}\n".format(FR.fq.name, FR.fq.seq))
+            i += 1
+            if i == P.distr:
+                i = 0
+    finally:
+        for o in outstreams:
+            o.close()
+    for o in outfiles:
+        sys.stdout.write("{}\n".format(o))
+
 ### Main
 
 def getFastqBasename(filename):
@@ -632,7 +668,13 @@ def main(args):
         fr.grep(bm, nameleft, nameright, P.leftTarget, P.rightTarget)
     
     elif P.mode == 'distr':
-        doDistribute2()
+        fmt = Utils.detectFileFormat(P.fqleft)
+        if fmt == "fastq":
+            doDistribute2()
+        elif fmt == "fasta":
+            doDistributeFasta()
+        else:
+            sys.stderr.write("File {} is in an unknown format.\n".format(P.fleft))
         
 if __name__ == "__main__":
     args = sys.argv[1:]
