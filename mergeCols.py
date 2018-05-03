@@ -10,7 +10,7 @@ import Script
 def usage():
     sys.stderr.write("""mergeCols.py - Merge columns from multiple files.
 
-Usage: mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] files...
+Usage: mergeCols.py [-o outfile] [-id 1] [-dc 2] [-cuff] [-rsem] [-na NA] [-names a,b,c...] file1 file2 ...
        mergeCols.py -a [-o outfile] [-id 1] [-i idsfile] colspecs file
 
 Combine gene data from multiple input files into a matrix. The program assumes that 
