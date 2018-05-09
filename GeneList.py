@@ -115,7 +115,7 @@ class Genelist():
             self.ngenes += 1
 
     def selectChrom(self, chrom):
-        if chrom <> self.currentChrom and chrom in self.chroms:
+        if chrom != self.currentChrom and chrom in self.chroms:
             self.currentChrom = chrom
             self.currentGenes = self.genes[chrom]
         return self.currentGenes
@@ -158,15 +158,15 @@ class Genelist():
         for chrom, genes in self.genes.iteritems():
             ng = len(genes)
             d = []
-            # print "chr={}, genes={}".format(chrom, len(genes))
+            # print("chr={}, genes={}".format(chrom, len(genes)))
             for i in range(0, len(genes), step):
                 i2 = min(i+step, ng) - 1
-                # print "i1={}, i2={}".format(i, i+step-1)
+                # print("i1={}, i2={}".format(i, i+step-1))
                 gfirst = genes[i]
                 glast  = genes[i2]
                 d.append([gfirst.start, glast.end, i, i2])
             idxs[chrom] = d
-            # print d
+            # print(d)
             # raw_input()
         self.indexes = idxs
 
@@ -225,7 +225,7 @@ class Genelist():
         self.selectChrom(chrom)
         genes = self.currentGenes
         (first, last) = self.positionsToRange(chrom, start, end)
-        # print "Looking at {}-{}".format(first, last)
+        # print("Looking at {}-{}".format(first, last))
         for i in range(first, last+1):
             ix = self.classifyIntersection(start, end, genes[i])
             if ix:
@@ -268,7 +268,7 @@ class Genelist():
                             out.write("{}\t{}\t{}\t{}_{}\t{}\t{}\n".format(chrom, start, end, gene.mrna, intid, gene.name, gene.strand))
                         else:
                             out.write("{}\t{}\t{}\t{}_{}\t{}\t{}\n".format(chrom, end, start, gene.mrna, intid, gene.name, gene.strand))
-                            # print [chrom, end, start, gene.mrna, intid, gene.name, gene.strand]
+                            # print([chrom, end, start, gene.mrna, intid, gene.name, gene.strand])
                             # raw_input()
                         intid += 1
                         prevexon = ex
@@ -423,14 +423,14 @@ class Transcript():
 
     def dump(self, prefix="", short=False):
         if short:
-            print "{}{} {}:{}-{} {}".format(prefix, self.ID, self.chrom, self.txstart, self.txend, self.exons)
+            print("{}{} {}:{}-{} {}".format(prefix, self.ID, self.chrom, self.txstart, self.txend, self.exons))
         else:
-            print prefix + "ID: " + self.ID
-            print prefix + "Chrom: " + self.chrom
-            print "{}Strand: {}".format(prefix, self.strand)
-            print "{}Transcript: {}-{}".format(prefix, self.txstart, self.txend)
-            print "{}CDS: {}-{}".format(prefix, self.cdsstart, self.cdsend)
-            print "{}Exons: {}".format(prefix, self.exons)
+            print(prefix + "ID: " + self.ID)
+            print(prefix + "Chrom: " + self.chrom)
+            print("{}Strand: {}".format(prefix, self.strand))
+            print("{}Transcript: {}-{}".format(prefix, self.txstart, self.txend))
+            print("{}CDS: {}-{}".format(prefix, self.cdsstart, self.cdsend))
+            print("{}Exons: {}".format(prefix, self.exons))
 
     def saveToDB(self, conn, parentID):
         idx = 0
@@ -632,14 +632,14 @@ class Gene():
         self.data        = []
 
     def dump(self):
-        print "ID: " + self.ID
-        print "Gene: " + self.name
-        print "GeneID: " + self.geneid
-        print "ENSG: " + self.ensg
-        print "Biotype: " + self.biotype
-        print "Region: {}:{}-{}".format(self.chrom, self.start, self.end)
-        print "Strand: {}".format(self.strand)
-        print "Transcripts:"
+        print("ID: " + self.ID)
+        print("Gene: " + self.name)
+        print("GeneID: " + self.geneid)
+        print("ENSG: " + self.ensg)
+        print("Biotype: " + self.biotype)
+        print("Region: {}:{}-{}".format(self.chrom, self.start, self.end))
+        print("Strand: {}".format(self.strand))
+        print("Transcripts:")
         for t in self.transcripts:
             t.dump(prefix="  ", short=True)
 
@@ -675,7 +675,7 @@ class Gene():
     def getRegion(self, params):
         """Returns the region for this gene as (start, end) according to the 'regwanted', 
 'updistance, and 'dndistance' attributes in the `params' object."""
-        #print self.name, self.start, self.end
+        #print(self.name, self.start, self.end)
         if self.start and self.end:
             if params.regwanted == 'b':
                 return (self.start, self.end)
@@ -795,9 +795,9 @@ class GenbankLoader(GeneLoader):
                     if key == '':   # still in previous section?
                         if section == 'gene':
                             data = line[21:]
-                            # print "In gene section: {}".format(data)
+                            # print("In gene section: {}".format(data))
                             if data[0:5] == '/gene':
-                                # print "Setting name to {}".format(data[7:-1])
+                                # print("Setting name to {}".format(data[7:-1]))
                                 thisGene.name = thisGene.ID = data[7:-1]
                             elif data[0:10] == '/locus_tag':
                                 if thisGene.name == '':
@@ -805,25 +805,25 @@ class GenbankLoader(GeneLoader):
                                 if thisGene.ID == '':
                                     thisGene.ID = data[12:-1]
                     elif key == 'gene':
-                        # print "Found new gene"
+                        # print("Found new gene")
                         # raw_input()
                         section = key
                         start, end, strand, ignore = parseStartEnd(line[21:])
-                        # print "New gene at ({}, {})".format(start, end)
+                        # print("New gene at ({}, {})".format(start, end))
                         thisGene = Gene("", chrom, strand)
                         thisGene.chrom = chrom
                         self.gl.add(thisGene, chrom)
                         thisGene.addTranscript(Transcript("", chrom, strand, start, end))
                     elif key == 'CDS':
                         cdsstart, cdsend, ignore, introns = parseStartEnd(line[21:])
-                        # print "Setting CDS to ({}, {})".format(cdsstart, cdsend)
+                        # print("Setting CDS to ({}, {})".format(cdsstart, cdsend))
                         if introns:
-                            # print "Setting introns: {}".format(introns)
+                            # print("Setting introns: {}".format(introns))
                             thisGene.transcripts[0].setIntrons(introns)
 
                         thisGene.transcripts[0].setCDS(cdsstart, cdsend)
-                        # print thisGene.smallrects
-                        # print thisGene.largerects
+                        # print(thisGene.smallrects)
+                        # print(thisGene.largerects)
                     else:
                         section = ''
                 elif line[0:9] == 'ACCESSION': # 'LOCUS':
@@ -849,9 +849,9 @@ class GTFloader(GeneLoader):
         """Read genes from a GTF file `filename'. If `wanted' is specified, only include genes whose biotype
 is in this list (or missing). If `notwanted' is specified, only include genes whose biotype is not in this list (or missing)."""
 
-        if wanted <> []:
+        if wanted != []:
             self.gl.setWanted(wanted)
-        elif notwanted <> []:
+        elif notwanted != []:
             self.gl.setNotWanted(notwanted)
 
         with open(self.filename, "r") as f:
@@ -872,7 +872,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     else:
                         self.currGene.name = ann['gene_id']
                     self.currGene.biotype = ann['gene_biotype']
-                    # print "Adding {} to {}".format(self.currGene.ID, chrom)
+                    # print("Adding {} to {}".format(self.currGene.ID, chrom))
                     # raw_input()
                     self.gl.add(self.currGene, chrom)
 
@@ -925,16 +925,16 @@ class GFFloader(GeneLoader):
         strand = 0
         orphans = 0             # Entries not following their parents
 
-        if wanted <> []:
+        if wanted != []:
             self.gl.setWanted(wanted)
-        elif notwanted <> []:
+        elif notwanted != []:
             self.gl.setNotWanted(notwanted)
 
         with open(self.filename, "r") as f:
             reader = Utils.CSVreader(f)
             for line in reader:
                 if len(line) < 8:
-                    print "|"+line+"|"
+                    print("|"+line+"|")
                 if line[6] == '+':
                     strand = 1
                 else:

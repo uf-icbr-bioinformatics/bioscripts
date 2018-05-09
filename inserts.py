@@ -37,7 +37,7 @@ class GTFregions():
             self.entries[self.currentChrom] = self.currentRegions
         for (chrom, regions) in self.entries.iteritems():
             regions.sort(key=lambda s: s[0])
-            print "{}: {} regions.".format(chrom, len(regions))
+            print("{}: {} regions.".format(chrom, len(regions)))
 
     def parseGTF(self, filename):
         with open(filename, "r") as f:

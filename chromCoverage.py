@@ -80,7 +80,7 @@ class Cov():
     allcols = False             # If true, output all columns from BED file
 
     def dump(self):
-        print "total={}, maxpos={}, effbases={}".format(self.total, self.maxpos, self.effbases)
+        print("total={}, maxpos={}, effbases={}".format(self.total, self.maxpos, self.effbases))
 
     def report(self):
         if self.chrom != "":
@@ -99,7 +99,7 @@ class Cov():
         if chrom != self.chrom:
             self.update(tot)
             self.report()
-            # print "Started chrom {}".format(chrom)
+            # print("Started chrom {}".format(chrom))
             self.chrom = chrom
         self.maxpos = pos
         self.effbases += 1
@@ -174,7 +174,7 @@ class Cov():
                         readlen = read.query_length
                         nreads += (1.0 * ov) / readlen
                         nbases += ov
-                        # print "s={}, e={}, l={}, ov={}, nr={}, nb={}".format(read.reference_start, read.reference_end, readlen, ov, nreads, nbases)
+                        # print("s={}, e={}, l={}, ov={}, nr={}, nb={}".format(read.reference_start, read.reference_end, readlen, ov, nreads, nbases))
                         # raw_input()
                     if self.allcols:
                         self.out.write("\t".join(parsed) + "\t{:.2f}\t{}\t{:.2f}\n".format(nreads, nbases, (1.0 * nbases) / (end - start)))

@@ -144,12 +144,12 @@ def revcomp(seq):
     return rc
 
 def distance(s1, s2):
-    #print "distance {} {} \n".format(s1, s2)
+    #print("distance {} {} \n".format(s1, s2))
     d = 0
     for i in range(min(len(s1), len(s2))):
         if s1[i] != s2[i]:
             d += 1
-    # print "{} {}: {}".format(s1, s2, d)
+    # print("{} {}: {}".format(s1, s2, d))
     return d
 
 ### Classes
@@ -261,7 +261,7 @@ class BarcodeMgr():
                 if d < maxd:
                     maxd = d
                     best = bc
-        # print maxd
+        # print(maxd)
         if maxd <= maxmismatch:
             bb = self.barcodes[best]
             self.nhits += 1
@@ -367,7 +367,7 @@ class FastqReader():
                 break
             bc = self.fq.getBarcode(bclen)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
-            # print "best: " + bo.seq
+            # print("best: " + bo.seq)
             # raw_input()
             if bo:
                 self.ngood += 1
@@ -467,9 +467,9 @@ class PairedFastqReader():
             if bc1 != bc2:
                 self.nbad += 1
                 continue
-            # print "barcode: " + bc1
+            # print("barcode: " + bc1)
             bo = dm.findBest(bc1, maxmismatch=P.maxmismatch)
-            # print "best: " + bo.seq
+            # print("best: " + bo.seq)
             # raw_input()
             if bo:
                 self.ngood += 1
@@ -524,7 +524,7 @@ def doDistribute():
                 break
             label = dm.barcodeseqs[i]
             bc = dm.barcodes[label]
-            #print "writing {} to {}, {}".format(i, label, bc)
+            #print("writing {} to {}, {}".format(i, label, bc))
             #raw_input()
             bc.writeRecord(pfr.fq1, pfr.fq2)
             i += 1

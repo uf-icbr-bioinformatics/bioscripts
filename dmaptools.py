@@ -263,7 +263,7 @@ class Merger():
                 if line == None:
                     break
                 key = line[0] + ":" + line[1]
-                # print "{} -> {}".format(key, p)
+                # print("{} -> {}".format(key, p))
                 # raw_input()
                 mmap[key] = p
                 p = f.tell()
@@ -289,7 +289,7 @@ class Merger():
         nhdr1 = len(hdr1)
         nhdr2 = len(hdr2)
 
-        # print "Header lengths: {}, {}".format(nhdr1, nhdr2)
+        # print("Header lengths: {}, {}".format(nhdr1, nhdr2))
         out.write("Chrom\tPos\tC1:Avg\tC1:Stdev")
         for h in hdr1:
             out.write("\tC1:" + h)
@@ -517,8 +517,8 @@ class Histcomparer(Averager):
                                 bin = 9
                             counts[i] += 1
                             hist[bin][i] += 1
-        # print hist
-        # print counts
+        # print(hist)
+        # print(counts)
         fracs = [ [ 1.0*hist[b][i] / counts[i] for i in range(nreps) ] for b in range(10) ]
         sys.stderr.write("{} rows.\n".format(nrows))
         return (nreps, fracs)
@@ -572,7 +572,7 @@ and `pos' to its first and second elements."""
             return None
         data = readDelim(self.stream)
         if data == None:
-            # print "File {} finished.".format(self.filename)
+            # print("File {} finished.".format(self.filename))
             self.stream.close()
             self.stream = None
             return None
@@ -583,7 +583,7 @@ and `pos' to its first and second elements."""
 
     def skipToChrom(self, chrom):
         """Read lines until finding one that starts with `chrom'."""
-        # print "Skipping to chrom {} for {}".format(chrom, self.filename)
+        # print("Skipping to chrom {} for {}".format(chrom, self.filename))
         while self.chrom != chrom:
             self.readNext()
             if self.stream == None:
@@ -836,11 +836,11 @@ class DMR():
         diff = ratio1 - ratio2
         if abs(diff) < self.methdiff:
             return None
-        #print (diff, [[totC1, totT1], [totC2, totT2]])
+        #print(diff, [[totC1, totT1], [totC2, totT2]])
 
         # Compute p-value
         (odds, pval) = scipy.stats.fisher_exact([[totC1, totT1], [totC2, totT2]])
-        #print (odds, pval, diff, [[totC1, totT1], [totC2, totT2]])
+        #print(odds, pval, diff, [[totC1, totT1], [totC2, totT2]])
         if pval <= self.pval:
             return (pval, diff)
         else:

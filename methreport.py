@@ -126,13 +126,13 @@ def main():
     seqs = loadSequences(infile)
     rd = refDesc(seqs.next())   # reference sequence
 
-    print "Reference sequence loaded from file `{}'.".format(infile)
-    print "{}bp, {} CG positions, {} GC positions.".format(rd.length, rd.numCGs, rd.numGCs)
+    print("Reference sequence loaded from file `{}'.".format(infile))
+    print("{}bp, {} CG positions, {} GC positions.".format(rd.length, rd.numCGs, rd.numGCs))
 
     CGarr = [ [p, 0] for p in rd.CGpositions ]
     GCarr = [ [p, 0] for p in rd.GCpositions ]
 
-    print "Reading sequences..."
+    print("Reading sequences...")
     for s in seqs:
         nreads += 1
         for p in CGarr:

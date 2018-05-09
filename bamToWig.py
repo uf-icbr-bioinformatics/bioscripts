@@ -266,23 +266,23 @@ def bamToWigA_old(bamfile, trackdata):
                 if curr and (curr[1] <= p):
                     while True:
                         #out.write("{}\t{}\t-\n".format(curr[0], curr[1]))
-                        #print "Output: 2 @ {}".format(curr[1])
+                        #print("Output: 2 @ {}".format(curr[1]))
                         G.add(curr)
                         x = L.pop()
                         L.deallocate(x)
                         curr = L.current()
                         if curr is None or curr[1] > p:
                             break
-                #print "Output: 1 @ {}".format(p)
+                #print("Output: 1 @ {}".format(p))
                 # Finally output entry for this read
                 G.add((chrom, p))
                 #out.write("{}\t{}\t+\n".format(chrom, p))
                 currChrom = chrom
 
             else:
-                #print "Storing {}".format(r.pos + r.qlen - 1)
+                #print("Storing {}".format(r.pos + r.qlen - 1))
                 #L.insert((r.reference_name, r.pos + r.qlen - 1))
-                #print "Storing: 2 @ {}".format(line[1])
+                #print("Storing: 2 @ {}".format(line[1]))
                 L.insert((chrom, int(line[1])))
     finally:
         G.close()

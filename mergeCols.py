@@ -166,7 +166,7 @@ class Opts():
         idx = 0
         idcol = self.id
         datacol = self.dc
-        # print "datacol={}".format(datacol)
+        # print("datacol={}".format(datacol))
         for infile in self.infiles:
             sys.stderr.write("Reading {}... ".format(infile))
             nread = 0
@@ -178,7 +178,7 @@ class Opts():
                     else:
                         nread += 1
                         data = line.rstrip("\r\n").split("\t")
-                        # print data
+                        # print(data)
                         gid = data[idcol]
                         gval = data[datacol]
                         if gid in table:

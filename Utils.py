@@ -445,7 +445,7 @@ class Resampler():
         self.init(size1, size2)
 
     def init(self, size1, size2):
-        # print "Init, {}, {}".format(size1, size2)
+        # print("Init, {}, {}".format(size1, size2))
         if size1 == 0 or size2 == 0:
             raise ValueError("Resampler cannot handle 0-length vectors!")
         if size1 == self.prev1 and size2 == self.prev2: # If sizes are unchanged...
@@ -465,11 +465,11 @@ class Resampler():
             else:
                 current = [idx1, idx2, self.q]
                 self.vmap.append(current)
-        # print "Initialized vmap, length={}".format(len(self.vmap))
+        # print("Initialized vmap, length={}".format(len(self.vmap)))
         # self.idxs1 = [ int(i * self.q) for i in range(self.steps) ]
         # self.idxs2 = [ int(i * self.p) for i in range(self.steps) ]
-        # print self.idxs1
-        # print self.idxs2
+        # print(self.idxs1)
+        # print(self.idxs2)
         self.vec2 = []
         self.prev1 = size1
         self.prev2 = size2
@@ -481,9 +481,9 @@ class Resampler():
             self.vec2[m[1]] = vec1[m[0]] * m[2]
 
         # for i in range(self.steps):
-            # print "{} => {} ({})".format(wh1, wh2, i * self.q)
-            # print "vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2))
-            # print "{} {} {}".format(i, self.idxs2[i], self.idxs1[i])
+            # print("{} => {} ({})".format(wh1, wh2, i * self.q))
+            # print("vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2)))
+            # print("{} {} {}".format(i, self.idxs2[i], self.idxs1[i]))
             # self.vec2[self.idxs2[i]] += vec1[self.idxs1[i]] * self.q
         return self.vec2
 
@@ -729,6 +729,6 @@ class GenomicWindower():
 def test():
     r = Resampler(9,3)
     v = range(9)
-    #print v
+    #print(v)
     return r.resample(v)
     #return r.resample([1,1,1])

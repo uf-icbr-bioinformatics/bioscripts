@@ -182,7 +182,7 @@ Min sites: {}
 
     def writeChromGenes(self, out, reg, data, genes, chrom):
         sys.stderr.write("Writing values for {} genes on {}.\n".format(len(genes), chrom))
-        #print data[:100]
+        #print(data[:100])
         mode = self.mode
         nwritten = 0
 
@@ -190,8 +190,8 @@ Min sites: {}
             grange = g.getRegion(reg)
             if not grange:
                 continue
-            #    print g.name
-            #    print reg.regwanted
+            #    print(g.name)
+            #    print(reg.regwanted)
             #    raw_input()
             nsites = 0
             totdmc = 0.0
@@ -228,9 +228,9 @@ Min sites: {}
                             balance += -1
             # if nsites > 0:
             #     sys.stderr.write("{}: {} sites\n".format(g.name, nsites))
-            #     print datarow
-            #     print genesites
-            #     print totdmc
+            #     print(datarow)
+            #     print(genesites)
+            #     print(totdmc)
             #     raw_input()
             if nsites >= self.minsites:
                 if mode == 'avg':
