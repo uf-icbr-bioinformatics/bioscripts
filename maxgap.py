@@ -23,4 +23,4 @@ if __name__ == "__main__":
             maxg = maxgap(f)
     else:
         maxg = maxgap(sys.stdin)
-    print "Max gap: {}".format(maxg)
+    print("Max gap: {}".format(maxg))

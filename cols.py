@@ -103,11 +103,11 @@ class Cols(Script.Script):
                 self.INFILES.append(a)
         
     def processFromStream(self, filename, f):
-        # print "skipping to row {}".format(self.ROWNUM)
+        # print("skipping to row {}".format(self.ROWNUM))
         hdr = []
         row = []
         reader = csv.reader(f, delimiter=self.DELIMITER, quotechar='"')
-        # print (MODE, ROWNUM, DELIMITER, SKIP, FIRSTHDR, RAW)
+        # print(MODE, ROWNUM, DELIMITER, SKIP, FIRSTHDR, RAW)
 
         if self.FIRSTHDR:
             hdr = reader.next()
@@ -131,14 +131,14 @@ class Cols(Script.Script):
 
             if self.RAW:
                 for p in range(ncols):
-                    print row[p]
+                    print(row[p])
             elif self.FIRSTHDR:
                 for p in range(ncols):
-                    print "  {} = {}".format(hdr[p], row[p])
+                    print("  {} = {}".format(hdr[p], row[p]))
             else:
                 idx = 0 if self.ZERO else 1
                 for h in row:
-                    print "  {} = {}".format(idx, h)
+                    print("  {} = {}".format(idx, h))
                     idx += 1
 
         elif self.MODE == 'matches':

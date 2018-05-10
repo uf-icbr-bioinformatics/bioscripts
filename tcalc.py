@@ -540,9 +540,9 @@ def test():
     d.dump()
     d.setNcols(3)
     d.processAllRows()
-    print d.colnames
-    print d.bindings
-    print d.variables
+    print(d.colnames)
+    print(d.bindings)
+    print(d.variables)
 
 if __name__ == "__main__":
     d = Driver("tcalc.py", version="1.0", usage=usage)

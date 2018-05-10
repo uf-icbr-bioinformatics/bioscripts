@@ -42,7 +42,7 @@ def parseAnnots():
 def main(infile, outfile):
     annots = parseAnnots()
     k = annots.keys()[0]
-    print (k, annots[k])
+    print(k, annots[k])
     (filename, col) = parseFilespec(infile)
     dcol = col+1
     sys.stderr.write("{} -> {}\n".format(filename, outfile))

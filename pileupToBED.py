@@ -122,7 +122,7 @@ class PTB():
                     self.outstream.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(self.currentChrom, self.startPos, self.lastPos, l, self.coverage, s))
 
     def newChrom(self, chrom, pos, cov):
-        # print "Found chrom {}".format(chrom)
+        # print("Found chrom {}".format(chrom))
         if self.repfile and self.currentChrom!= "":
             covpct = (100.0 * self.covered) / (self.covered + self.uncovered)
             uncpct = (100.0 * self.uncovered) / (self.covered + self.uncovered)

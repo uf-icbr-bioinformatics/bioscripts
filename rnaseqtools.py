@@ -199,7 +199,7 @@ specified, in which case it gets loaded from that file."""
             self.mixes = ['1'] * self.ncols
         else:
             self.mixes = [ m.strip(" ") for m in mixes.split(",")]
-            if len(self.mixes) <> len(self.infiles):
+            if len(self.mixes) != len(self.infiles):
                 ew("Error: the number of mixes ({}) should be equal to the number of input files ({}).\n", len(self.mixes), len(self.infiles))
                 exit(-1)
             for m in self.mixes:
@@ -336,7 +336,7 @@ Rows in which both values are 0 are ignored."""
         fx = []
         fy = []
         for b in base:
-            if b[0] <> 0 and b[1] <> 0:
+            if b[0] != 0 and b[1] != 0:
                 fx.append(b[0])
                 fy.append(b[1])
         reg = linreg(fx, fy)
@@ -350,7 +350,7 @@ Also handles different concentrations due to the use of different mixes."""
         fx = []
         fy = []
         for b in base:
-            if b[1] <> 0 and b[2] <> 0:
+            if b[1] != 0 and b[2] != 0:
                 e = self.ERCCdb.find(b[0])
                 if e:
                     fact = e.factor(self.mixes[0], self.mixes[idx-1])
@@ -383,7 +383,7 @@ Also handles different concentrations due to the use of different mixes."""
     def lnorm(self, rows, idx, slope, intercept):
         # sys.stderr.write("Normalizing column {}\n".format(idx))
         for r in rows:
-            if r[1] <> 0 and r[idx] <> 0:
+            if r[1] != 0 and r[idx] != 0:
                 r[idx] = max(0.0, (r[idx] - intercept) / slope) # RSEM doesn't like negative counts... ;)
 
     def run(self):
@@ -498,7 +498,7 @@ the identifier in the first column is in the set `ids'."""
             col += 1
 
 #        if 'ENSG00000167741' in matrix:
-#            print matrix['ENSG00000167741']
+#            print(matrix['ENSG00000167741'])
 
         # Write output file
         ew("Writing fold changes for {} to file '{}'.\n", desc, outfile)

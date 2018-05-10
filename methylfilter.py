@@ -159,7 +159,7 @@ class mfrun():
             if self.writeRef:
                 of.writeSeq(self.rd.sequence, False) # don't count ref seq in number of written sequences
         if self.reportFile:
-            print "Writing report to {}".format(self.reportFile)
+            print("Writing report to {}".format(self.reportFile))
             self.reportStream = open(self.reportFile, "w")
             if self.mode == "CG":
                 self.reportStream.write("Sequence\t% CG Meth\tConv\tTot\t% GC Meth\tFilename\n")
@@ -176,7 +176,7 @@ class mfrun():
     def showOutfiles(self):
         """Show all defined output files with their ranges."""
         for of in self.outfiles:
-            print "{}% - {}% -> {}".format(of.min, of.max, of.filename)
+            print("{}% - {}% -> {}".format(of.min, of.max, of.filename))
 
     def findOutfile(self, x):
         """Find the output file for value `x'."""
@@ -189,9 +189,9 @@ class mfrun():
         tot = 0
         for of in self.outfiles:
             tot = tot + of.nout
-            print "{:5}  {}".format(of.nout, of.filename)
+            print("{:5}  {}".format(of.nout, of.filename))
         if self.summaryFile:
-            print "Writing summary to {}".format(self.summaryFile)
+            print("Writing summary to {}".format(self.summaryFile))
             with open(self.summaryFile, "w") as out:
                 out.write("Filename\tMin\tMax\tNseqs\n")
                 for of in self.outfiles:
@@ -283,21 +283,21 @@ def main():
     rd = refDesc(seqs.next(), run.excludeGCG)   # reference sequence
     run.rd = rd
 
-    print "Reference sequence loaded from file `{}'.".format(run.infile)
+    print("Reference sequence loaded from file `{}'.".format(run.infile))
     if run.excludeGCG:
-        print "Excluding GCG positions."
+        print("Excluding GCG positions.")
     else:
-        print "Not excluding GCG positions."
+        print("Not excluding GCG positions.")
     if run.mode == "CG":
-        print "{}bp, {} CG positions.".format(rd.length, rd.numCGs)
+        print("{}bp, {} CG positions.".format(rd.length, rd.numCGs))
     elif run.mode == "GC":
-        print "{}bp, {} GC positions.".format(rd.length, rd.numGCs)
+        print("{}bp, {} GC positions.".format(rd.length, rd.numGCs))
 
     try:
         run.openAll()
-        print "{} output files opened:".format(len(run.outfiles))
+        print("{} output files opened:".format(len(run.outfiles)))
         run.showOutfiles()
-        print "Parsing sequences..."
+        print("Parsing sequences...")
         
         nread = 0
         for s in seqs:
@@ -330,10 +330,10 @@ def main():
     finally:
         run.closeAll()
 
-    print "Done. {} sequences read.".format(nread)
-    print "Report:"
+    print("Done. {} sequences read.".format(nread))
+    print("Report:")
     nwritten = run.showSummary()
-    print "{} sequences written.".format(nwritten)
+    print("{} sequences written.".format(nwritten))
 
 if __name__ == "__main__":
     
