@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import Utils
 
 def parseLine(ln):
     ln = ln.rstrip("\r\n")
@@ -167,14 +168,14 @@ class ERCCdb():
 
     def toDelimited(self, out, names=[]):
         out.write("#Name\tClass\tConcentration1\tConcentration2\tFC\tlog2(FC)\n")
-        for k, e in self.entries.iteritems():
+        for k, e in Utils.get_iterator(self.entries):
             if names == [] or k in names:
                 out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(e.name, e.ERCCclass, e.concentration1, e.concentration2, e.fc, e.log2fc))
 
     def dump(self, stream):
         first = True
         stream.write("{")
-        for k, e in self.entries.iteritems():
+        for k, e in Utils.get_iterator(self.entries):
             if first:
                 stream.write("'" + k + "': ")
                 first = False
