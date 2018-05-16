@@ -129,7 +129,7 @@ class Genelist():
 
     def allGeneNames(self):
         result = []
-        for (chrom, cgenes) in self.genes.iteritems():
+        for (chrom, cgenes) in Utils.get_iterator(self.genes):
             for cg in cgenes:
                 result.append(cg.name)
         return result
@@ -155,7 +155,7 @@ class Genelist():
     def buildIndexes(self):
         step = 100
         idxs = {}
-        for chrom, genes in self.genes.iteritems():
+        for chrom, genes in Utils.get_iterator(self.genes):
             ng = len(genes)
             d = []
             # print("chr={}, genes={}".format(chrom, len(genes)))
