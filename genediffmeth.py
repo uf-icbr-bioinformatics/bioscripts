@@ -59,6 +59,7 @@ class Params(Script.Script):
     mode = 'avg'                # how to combine methyl sites in score for gene. Other options: max, min, bal, abs, none
     minsites = 1                # minimum number of sites
     classify = False            # If true, run in classify mode (all other options are ignored)
+    ignore = False              # If set to a float, values read from file equal to this will be ignored (used for -mat files).
 
     # Runtime
     genelist = []               # All genes
@@ -95,7 +96,10 @@ class Params(Script.Script):
             elif next == '-x':
                 self.datacol = int(a) - 1
                 next = ""
-            elif a in ['-r', '-d', '-dup', '-ddn', '-m', '-l', '-x']:
+            elif next == '-i':
+                self.ignore = float(a)
+                next = ""
+            elif a in ['-r', '-d', '-dup', '-ddn', '-m', '-l', '-x', '-i']:
                 next = a
             elif a == '-s':
                 self.diffsorted = True
@@ -166,9 +170,13 @@ Min sites: {}
                         thischrom = chrom
                         # sys.stderr.write("Found chrom {}\n".format(chrom))
                         v = float(parsed[valcol])
+                        if self.ignore and v == self.ignore:
+                            continue
                         chromdata = [ (int(parsed[poscol]), v) ]
                     else:
                         v = float(parsed[valcol])
+                        if self.ignore and v == self.ignore:
+                            continue
                         chromdata.append((int(parsed[poscol]), v))
             nwritten += self.writeChromGenes(out, reg, chromdata, genelist.genesOnChrom(thischrom), thischrom)
             

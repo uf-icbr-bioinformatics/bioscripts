@@ -84,7 +84,7 @@ class ParseBlast(Script.Script):
                 continue
             parsed = line.rstrip("\r\n").split("\t")
             if self.limits.checkRecord(parsed):
-                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(parsed[1], parsed[8], parsed[9], parsed[2], parsed[3], parsed[10], parsed[11]))
+                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(parsed[1], parsed[8], parsed[9], parsed[2], parsed[3], parsed[10], parsed[11], parsed[0]))
 
     def run(self):
         if self.outfile:

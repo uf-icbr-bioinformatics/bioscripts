@@ -26,6 +26,8 @@ class Script():
                            ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
         self.errorCode = 100
         self.defineErrors(errors)
+        self.copyright = """(c) 2018, A. Riva, ICBR Bioinformatics Core, University of Florida
+          L. Boatwright, ICBR Bioinformatics Core, University of Florida"""
         self.init()
 
     def init(self):
