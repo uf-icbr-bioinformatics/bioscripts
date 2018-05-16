@@ -12,6 +12,14 @@ import pysam
 import string
 import random
 
+PYTHON_VERSION = sys.version_info[0]
+
+def get_iterator(dict):
+    if PYTHON_VERSION == 2:
+        return dict.iteritems()
+    else:
+        return dict.items()
+
 def genOpen(filename, mode):
     """Generalized open() function - works on both regular files and .gz files."""
     (name, ext) = os.path.splitext(filename)

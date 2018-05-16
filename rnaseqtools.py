@@ -574,7 +574,7 @@ class ExpMerger():
 
     def writeAllExp(self, out):
         out.write("#Gene\t" + "\t".join(self.labels) + "\n")
-        for g, gdata in self.table.iteritems():
+        for g, gdata in Utils.get_iterator(self.table):
             out.write(g)
             for l in self.labels:
                 out.write("\t")
@@ -641,7 +641,7 @@ ignoring out of bounds errors and fields that don't contain numbers."""
             try:
                 v += float(row[c])
                 n += 1
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 pass
         if n == 0:
             return 0

@@ -35,7 +35,7 @@ class GTFregions():
     def doneAdding(self):
         if self.currentRegions != []:
             self.entries[self.currentChrom] = self.currentRegions
-        for (chrom, regions) in self.entries.iteritems():
+        for (chrom, regions) in Utils.get_iterator(self.entries):
             regions.sort(key=lambda s: s[0])
             print("{}: {} regions.".format(chrom, len(regions)))
 

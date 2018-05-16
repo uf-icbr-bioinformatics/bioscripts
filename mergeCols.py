@@ -198,7 +198,7 @@ class Opts():
 
         try:
             out.write("\t".join(["ID"] + self.names) + "\n")
-            for (gid, vec) in table.iteritems():
+            for (gid, vec) in Utils.get_iterator(table):
                 out.write(gid + "\t" + "\t".join(vec) + "\n")
         finally:
             if self.outfile:

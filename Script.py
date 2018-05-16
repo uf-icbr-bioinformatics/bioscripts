@@ -2,6 +2,7 @@
 
 import sys
 import os.path
+import Utils
 
 class Script():
     name = ""
@@ -42,7 +43,7 @@ class Script():
             self.errorCode += 1
     
     def showErrors(self):
-        for (code, name) in self.errorNames.iteritems():
+        for (code, name) in Utils.get_iterator(self.errorNames):
             sys.stderr.write("{}: {}\n".format(code, name))
 
     def usage(self, what=None):
