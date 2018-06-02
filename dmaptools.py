@@ -1,39 +1,40 @@
 #!/usr/bin/env python
 
 import sys
+import csv
 import numpy as np
 import scipy.stats
 
-import Script
+from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim
 
-## TODO:
-## new dmr function looking at n consecutive sites changing by more than d in same direction.
+import Script
 
 # Main
 
-COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg"
+COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr"
+
+def allCommands():
+    global CLASSES
+    return sorted(CLASSES.keys())
 
 def usage(what=None):
     if what == None:
+        allcmd = allCommands()
         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
 Usage: dmaptools.py command arguments...
 
 where command is one of: {}
 
-merge - report per-replicate methylation values at differentially methylated sites.
-avgmeth - report and compare genome-wide methylation levels in two sets of replicates.
-histmeth - compare % methylation rates in two sets of replicates.
-dmr - detect differentially methylated regions.
-dmr2 - detect differentially methylated regions (method #2).
-winavg - generate a BED file containing average methylation in consecutive windows.
-winmat - like winavg, but using a -mat file as input.
-cmerge - merge columns from multiple files into a single output file.
-regavg - compute average methylation over a set of regions
+""".format(", ".join(allcmd)))
+        for cmd in allcmd:
+            cl = CLASSES[cmd]
+            sys.stderr.write("{} - {}.\n".format(cmd, cl.__doc__))
 
+        sys.stderr.write("""
 Use `dmaptools.py -h command' to display usage for `command'.
 
-""".format(COMMANDS))
+""")
     elif what == 'regavg':
         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
@@ -217,18 +218,10 @@ Options:
 P = Script.Script("dmaptools.py", version="1.0", usage=usage,
                   errors=[('NOCMD', 'Missing command', 'The first argument should be one of: ' + COMMANDS)])
 
-# Utils
-
-def readDelim(stream):
-    l = stream.readline().rstrip("\r\n")
-    if l == '':
-        return None
-    else:
-        return l.split("\t")
-
 # Merger
 
 class Merger():
+    """report per-replicate methylation values at differentially methylated sites"""
     mcompfile = None
     matfile1 = None
     matfile2 = None
@@ -255,13 +248,11 @@ class Merger():
         hdr = []
         mmap = {}
         with open(matfile, "r") as f:
-            line = readDelim(f)
+            c = csv.reader(f, delimiter='\t')
+            line = c.next()
             hdr = line[4:]
             p = f.tell()
-            while True:
-                line = readDelim(f)
-                if line == None:
-                    break
+            for line in c:
                 key = line[0] + ":" + line[1]
                 # print("{} -> {}".format(key, p))
                 # raw_input()
@@ -414,6 +405,7 @@ class ColMerger():
 ### a two-sample t-test.
 
 class Averager():
+    """report and compare genome-wide methylation levels in two sets of replicates"""
     matfile1 = None
     nreps1 = 0
     matfile2 = None
@@ -494,6 +486,7 @@ class Averager():
 ### different in each bin.
 
 class Histcomparer(Averager):
+    """compare % methylation rates in two sets of replicates"""
 
     def methHist(self, filename):
         nrows = 0
@@ -542,160 +535,6 @@ class Histcomparer(Averager):
                 self.report(out, fracs1, fracs2)
         else:
             self.report(sys.stdout, fracs1, fracs2)
-
-### DMR
-
-## ToDo: make this class more general
-class BEDreader():
-    filename = None
-    stream   = None
-    current  = None
-    chrom    = ""
-    pos      = 0
-
-    def __init__(self, filename, skipHdr=True):
-        self.filename = filename
-        self.stream = open(self.filename, "r")
-        if skipHdr:
-            self.readNext()
-
-    def close(self):
-        self.stream.close()
-
-    def storeCurrent(self, data):
-        self.current = [int(data[4]), int(data[5]), data[1]]
-        
-    def readNext(self):
-        """Read one line from stream and store it in the `current' attribute. Also sets `chrom' 
-and `pos' to its first and second elements."""
-        if self.stream == None:
-            return None
-        data = readDelim(self.stream)
-        if data == None:
-            # print("File {} finished.".format(self.filename))
-            self.stream.close()
-            self.stream = None
-            return None
-        self.chrom = data[0]
-        self.pos   = int(data[1])
-        self.storeCurrent(data)
-        return True
-
-    def skipToChrom(self, chrom):
-        """Read lines until finding one that starts with `chrom'."""
-        # print("Skipping to chrom {} for {}".format(chrom, self.filename))
-        while self.chrom != chrom:
-            self.readNext()
-            if self.stream == None:
-                break
-
-    def readUntil(self, chrom, limit):
-        """Read lines until reaching one that is after `pos' or is on a different chromosome. Returns:
-- None if the BED file is finished,
-- The new chromosome, if different from chrom,
-- The list of records read otherwise.
-"""
-        result = []
-        if self.stream == None:
-            return None
-        if chrom != self.chrom:
-            return self.chrom
-        while True:
-            if not limit or self.pos < limit:
-                result.append(self.current)
-                self.readNext()
-                if self.stream == None:
-                    break
-                if chrom != self.chrom:
-                    break
-            else:
-                break
-        return result
-
-    def readChromosome(self):
-        """Call readNext() before the first call to this method."""
-        if self.stream is None:
-            return None
-        result = []
-        thisChrom = self.chrom
-        result.append(self.current)
-        while True:
-            if not self.readNext():
-                return result     # File is finished
-            if self.chrom != thisChrom:
-                return result
-            result.append(self.current)
-        return result
-
-class METHreader(BEDreader):
-    
-    def storeCurrent(self, data):
-        self.current = [data[0], int(data[1]), float(data[3])]
-
-class DualBEDreader():
-    bed1 = None
-    bed2 = None
-    chrom = ""
-    pos = 0
-    current1 = None
-    current2 = None
-
-    def __init__(self, filename1, filename2):
-        self.bed1 = BEDreader(filename1)
-        self.bed2 = BEDreader(filename2)
-        if self.bed1.chrom != self.bed2.chrom:
-            sys.stderr.write("Error: BED files start on different chromosomes ({}, {}).\n".format(self.bed1.chrom, self.bed2.chrom))
-        else:
-            self.chrom = self.bed1.chrom
-
-    def readNext(self):
-        """Read the two BED files looking for the next site present in both. Returns True if a site is found,
-in which case the chrom, pos, and current attributes are set. Returns False if one of the two files ends."""
-        while True:
-            if self.bed1.stream is None or self.bed2.stream is None:
-                return None     # One of the two files is finished, done.
-
-            # Check if one of the two BEDs is now at a different chrom
-            if self.bed1.chrom != self.bed2.chrom:
-                # If so, advance the other one to the same chrom
-                if self.bed1.chrom == self.chrom:
-                    self.bed1.skipToChrom(self.bed2.chrom)
-                else:
-                    self.bed2.skipToChrom(self.bed1.chrom)
-                self.chrom = self.bed1.chrom
-
-            # Now look at positions. If they are the same, add to region
-            if self.bed1.pos == self.bed2.pos:
-                self.chrom = self.bed1.chrom
-                self.pos = self.bed1.pos
-                self.current1 = self.bed1.current
-                self.current2 = self.bed2.current
-                self.bed1.readNext()
-                self.bed2.readNext()
-                return True
-            elif self.bed1.pos < self.bed2.pos:
-                self.bed1.readNext()
-            else:
-                self.bed2.readNext()
-
-class MATreader(BEDreader):
-    hdr = None
-    nreps = 0
-
-    def __init__(self, filename):
-        self.filename = filename
-        self.stream = open(self.filename, "r")
-        self.hdr = readDelim(self.stream)
-        self.nreps = len(self.hdr)-4
-        self.readNext()
-
-    def storeCurrent(self, data):
-        self.current = data[4:]
-        
-class REGreader(BEDreader):
-
-    def storeCurrent(self, data):
-        self.current = [self.chrom, self.pos, int(data[2]), data[3], data[4]]
 
 ## DMRs
 
@@ -752,6 +591,7 @@ class DMRwriter():
         self.nd += 1
 
 class DMR():
+    """detect differentially methylated regions"""
     winsize = 100
     minsites1 = 0   # Minimum number of sites in test condition
     minsites2 = 4   # Minimum number of sites in control condition
@@ -764,6 +604,8 @@ class DMR():
     bedfile2 = None # BED file for control condition
     outfile = None
     growing = None              # buffer for DMRs that can potentially be joined
+    jump = False                # Skip to this chrom?
+    one = False                 # Do a single chromosome?
 
     def __init__(self, args):
         next = ""
@@ -792,7 +634,14 @@ class DMR():
             elif next == '-o':
                 self.outfile = a
                 next = ""
-            elif a in ['-w', '-s', '-t', '-c', '-d', '-p', '-o', '-g']:
+            elif next == '-j':
+                self.jump = a
+                next = ""
+            elif next == "-J":
+                self.jump = a
+                self.one = True
+                next = ""
+            elif a in ['-w', '-s', '-t', '-c', '-d', '-p', '-o', '-g', '-j', '-J']:
                 next = a
             elif a == '-a':
                 self.samedir = False
@@ -848,8 +697,8 @@ class DMR():
         
     def findDMRs(self, out, avgout=None):
         DW = DMRwriter(out, self.gap*self.winsize, samedir=self.samedir)
-        BR1 = BEDreader(self.bedfile1)
-        BR2 = BEDreader(self.bedfile2)
+        BR1 = BEDreader(self.bedfile1, jump=self.jump)
+        BR2 = BEDreader(self.bedfile2, jump=self.jump)
         chrom = BR1.chrom       # assume that both BED file start with the same chrom - should check this!
         
         start = 0
@@ -860,9 +709,11 @@ class DMR():
         while BR1.stream != None and BR2.stream != None:
             data1 = BR1.readUntil(chrom, end)
             data2 = BR2.readUntil(chrom, end)
-            
+
             if isinstance(data1, basestring): # BR1 is at new chrom?
                 sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
+                if self.one:
+                    break
                 BR2.skipToChrom(data1)        # BR2 should join it
                 totfound += nfound
                 nfound = 0
@@ -872,6 +723,8 @@ class DMR():
 
             elif isinstance(data2, basestring): # BR2 is at new chrom?
                 sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
+                if self.one:
+                    break
                 BR1.skipToChrom(data2)        # BR1 should join it
                 totfound += nfound
                 nfound = 0
@@ -959,6 +812,7 @@ class DMR2writer():
         
     
 class DMR2():
+    """detect differentially methylated regions (method #2)"""
     DW       = None          # DMR2writer
     mincov   = 4             # Minimum coverage of sites considered (-c)
     methdiff = 0.2           # Minimum diff meth (-d)
@@ -1034,6 +888,8 @@ class DMR2():
 ### WINAVG
 
 class WINAVG():
+    """generate a BED file containing average methylation in consecutive windows"""
+
     winsize = 100
     minsites = 0   # Minimum number of sites in window
     mincov = 4     # Minimum coverage of sites counted
@@ -1115,6 +971,8 @@ class WINAVG():
 ### WINMAT
 
 class WINMAT():
+    """like winavg, but using a -mat file as input"""
+
     winsize = 100
     minsites = 0   # Minimum number of sites in window
     matfile = None # Input file
@@ -1188,6 +1046,8 @@ class WINMAT():
 ### CMERGE
 
 class CMERGE():
+    """merge columns from multiple files into a single output file"""
+
     colmerger = None
     filenames = []
     targetcol = 3
@@ -1227,6 +1087,8 @@ class CMERGE():
 ### REGAVG
 
 class REGAVG():
+    """compute average methylation over a set of regions"""
+
     bedfile   = None
     regfile   = None
     outfile   = None
@@ -1413,7 +1275,112 @@ class REGAVG():
         self.vector[0][idx] += site[2]
         self.vector[1][idx] += 1
         
-            
+### Correlation of methylation values
+
+class Colpair():                # Used by CORR
+    col1 = None
+    col2 = None
+    name1 = ""
+    name2 = ""
+    v1 = []
+    v2 = []
+
+    def __init__(self, c1, c2):
+        self.col1 = c1 + 3
+        self.col2 = c2 + 3
+        self.v1 = []
+        self.v2 = []
+
+class CORR():
+    """compute correlation between methylation levels of replicates of a condition"""
+
+    matfile = None
+    outfile = None
+    colpairs = []
+
+    def __init__(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a == "-o":
+                prev = a
+            elif self.matfile is None:
+                self.matfile = P.isFile(a)
+            else:
+                pair = self.splitCols(a)
+                if pair:
+                    cp = Colpair(pair[0], pair[1])
+                    self.colpairs.append(cp)
+
+    def splitCols(self, s):
+        pieces = s.split(",")
+        if len(pieces) == 2:
+            try:
+                a = int(pieces[0])
+                b = int(pieces[1])
+                return (a, b)
+            except:
+                sys.stderr.write("Warning: argument `{}' should be of the form P,Q where P and Q are column numbers.\n")
+        return None
+
+    def run(self):
+        name1 = ""
+        name2 = ""
+        v1 = []
+        v2 = []
+
+        with open(self.matfile, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            hdr = c.next()
+            for cp in self.colpairs:
+                cp.name1 = hdr[cp.col1]
+                cp.name2 = hdr[cp.col2]
+            for line in c:
+                for cp in self.colpairs:
+                    x1 = float(line[cp.col1])
+                    x2 = float(line[cp.col2])
+                    if x1 >= 0 and x2 >= 0:
+                        cp.v1.append(x1)
+                        cp.v2.append(x2)
+
+        for cp in self.colpairs:
+            a1 = np.array(cp.v1, dtype=float)
+            a2 = np.array(cp.v2, dtype=float)
+            cc = np.corrcoef(a1, a2)
+            sys.stdout.write("Sample1:\t{}\n".format(cp.name1))
+            sys.stdout.write("Sample2:\t{}\n".format(cp.name2))
+            sys.stdout.write("Num sites:\t{}\n".format(len(a1)))
+            sys.stdout.write("Mean1:\t{}\n".format(np.mean(a1)))
+            sys.stdout.write("Mean2:\t{}\n".format(np.mean(a2)))
+            sys.stdout.write("Correlation:\t{}\n\n".format(cc[0,1]))
+
+### Diff
+
+class DIFF():
+    bedfile1 = None
+    bedfile2 = None
+    outfile = None
+
+    def __init__(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a in ["-o"]:
+                prev = o
+            elif self.bedfile1 is None:
+                self.bedfile1 = P.isFile(a)
+            else:
+                self.bedfile2 = P.isFile(a)
+        if self.bedfile1 == None or self.bedfile2 == None:
+            P.errmsg(P.NOFILE)
+
+    def run(self):
+        pass
+
 ### window-based DMR analysis:
 ### Params:
 ### window size
@@ -1442,6 +1409,17 @@ class REGAVG():
 ### Re-run pipeline for genediffmeth in more regions - DONE
 ### Add links to mat files - DONE
 
+CLASSES = {'merge': Merger,
+           'avgmeth': Averager,
+           'histmeth': Histcomparer,
+           'dmr': DMR,
+           'dmr2': DMR2,
+           'winavg': WINAVG,
+           'winmat': WINMAT,
+           'cmerge': CMERGE,
+           'regavg': REGAVG,
+           'corr': CORR}
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     nargs = len(args)
@@ -1452,32 +1430,40 @@ if __name__ == "__main__":
 
     cmd = args[0]
     
-    if cmd == 'merge':
-        M = Merger(args[1:])
+    if cmd in CLASSES:
+        cl = CLASSES[cmd]
+        M = cl(args[1:])
         M.run()
-    elif cmd == 'avgmeth':
-        M = Averager(args[1:])
-        M.run()
-    elif cmd == 'histmeth':
-        M = Histcomparer(args[1:])
-        M.run()
-    elif cmd == 'dmr':
-        M = DMR(args[1:])
-        M.run()
-    elif cmd == 'dmr2':
-        M = DMR2(args[1:])
-        M.run()
-    elif cmd == 'winavg':
-        M = WINAVG(args[1:])
-        M.run()
-    elif cmd == 'winmat':
-        M = WINMAT(args[1:])
-        M.run()
-    elif cmd == 'cmerge':
-        M = CMERGE(args[1:])
-        M.run()
-    elif cmd == 'regavg':
-        M = REGAVG(args[1:])
-        M.run()
+
+    # if cmd == 'merge':
+    #     M = Merger(args[1:])
+    #     M.run()
+    # elif cmd == 'avgmeth':
+    #     M = Averager(args[1:])
+    #     M.run()
+    # elif cmd == 'histmeth':
+    #     M = Histcomparer(args[1:])
+    #     M.run()
+    # elif cmd == 'dmr':
+    #     M = DMR(args[1:])
+    #     M.run()
+    # elif cmd == 'dmr2':
+    #     M = DMR2(args[1:])
+    #     M.run()
+    # elif cmd == 'winavg':
+    #     M = WINAVG(args[1:])
+    #     M.run()
+    # elif cmd == 'winmat':
+    #     M = WINMAT(args[1:])
+    #     M.run()
+    # elif cmd == 'cmerge':
+    #     M = CMERGE(args[1:])
+    #     M.run()
+    # elif cmd == 'regavg':
+    #     M = REGAVG(args[1:])
+    #     M.run()
+    # elif cmd == 'corr':
+    #     M = CORR(args[1:])
+    #     M.run()
     else:
         P.usage()

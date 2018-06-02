@@ -12,6 +12,8 @@ import pysam
 import string
 import random
 
+from bedindex import loadindex
+
 PYTHON_VERSION = sys.version_info[0]
 
 def get_iterator(dict):
@@ -307,6 +309,15 @@ format, "?" otherwise."""
             elif line[0] == "@":
                 return "fastq"
         return "?"
+
+# Utils
+
+def readDelim(stream):
+    l = stream.readline().rstrip("\r\n")
+    if l == '':
+        return None
+    else:
+        return l.split("\t")
 
 ### Smart CSV reader
 
@@ -733,6 +744,167 @@ class GenomicWindower():
         self.open(echrom, epos, entry)
         self.nextBlock(echrom, epos)
             
+## ToDo: make this class more general
+class BEDreader():
+    filename = None
+    stream   = None
+    current  = None
+    chrom    = ""
+    pos      = 0
+
+    def __init__(self, filename, skipHdr=True, jump=False):
+        self.filename = filename
+        self.stream = open(self.filename, "r")
+        if jump:
+            idx = loadindex(filename)
+            if jump in idx:
+                fp = idx[jump]
+                sys.stderr.write("Jumping to {} ({})\n".format(jump, fp))
+                self.stream.seek(fp)
+                self.readNext()
+            else:
+                sys.stderr.write("Warning: `{}' not found in BED index.\n".format(jump))
+        elif skipHdr:
+            self.readNext()
+
+    def close(self):
+        self.stream.close()
+
+    def storeCurrent(self, data):
+        self.current = [int(data[4]), int(data[5]), data[1]]
+        
+    def readNext(self):
+        """Read one line from stream and store it in the `current' attribute. Also sets `chrom' 
+and `pos' to its first and second elements."""
+        if self.stream == None:
+            return None
+        data = readDelim(self.stream)
+        if data == None:
+            # print("File {} finished.".format(self.filename))
+            self.stream.close()
+            self.stream = None
+            return None
+        self.chrom = data[0]
+        self.pos   = int(data[1])
+        self.storeCurrent(data)
+        return True
+
+    def skipToChrom(self, chrom):
+        """Read lines until finding one that starts with `chrom'."""
+        # print("Skipping to chrom {} for {}".format(chrom, self.filename))
+        while self.chrom != chrom:
+            self.readNext()
+            if self.stream == None:
+                break
+
+    def readUntil(self, chrom, limit):
+        """Read lines until reaching one that is after `pos' or is on a different chromosome. Returns:
+- None if the BED file is finished,
+- The new chromosome, if different from chrom,
+- The list of records read otherwise.
+"""
+        result = []
+        if self.stream == None:
+            return None
+        if chrom != self.chrom:
+            return self.chrom
+        while True:
+            if not limit or self.pos < limit:
+                result.append(self.current)
+                self.readNext()
+                if self.stream == None:
+                    break
+                if chrom != self.chrom:
+                    break
+            else:
+                break
+        return result
+
+    def readChromosome(self):
+        """Call readNext() before the first call to this method."""
+        if self.stream is None:
+            return None
+        result = []
+        thisChrom = self.chrom
+        result.append(self.current)
+        while True:
+            if not self.readNext():
+                return result     # File is finished
+            if self.chrom != thisChrom:
+                return result
+            result.append(self.current)
+        return result
+
+class METHreader(BEDreader):
+    
+    def storeCurrent(self, data):
+        self.current = [data[0], int(data[1]), float(data[3])]
+
+class DualBEDreader():
+    bed1 = None
+    bed2 = None
+    chrom = ""
+    pos = 0
+    current1 = None
+    current2 = None
+
+    def __init__(self, filename1, filename2):
+        self.bed1 = BEDreader(filename1)
+        self.bed2 = BEDreader(filename2)
+        if self.bed1.chrom != self.bed2.chrom:
+            sys.stderr.write("Error: BED files start on different chromosomes ({}, {}).\n".format(self.bed1.chrom, self.bed2.chrom))
+        else:
+            self.chrom = self.bed1.chrom
+
+    def readNext(self):
+        """Read the two BED files looking for the next site present in both. Returns True if a site is found,
+in which case the chrom, pos, and current attributes are set. Returns False if one of the two files ends."""
+        while True:
+            if self.bed1.stream is None or self.bed2.stream is None:
+                return None     # One of the two files is finished, done.
+
+            # Check if one of the two BEDs is now at a different chrom
+            if self.bed1.chrom != self.bed2.chrom:
+                # If so, advance the other one to the same chrom
+                if self.bed1.chrom == self.chrom:
+                    self.bed1.skipToChrom(self.bed2.chrom)
+                else:
+                    self.bed2.skipToChrom(self.bed1.chrom)
+                self.chrom = self.bed1.chrom
+
+            # Now look at positions. If they are the same, add to region
+            if self.bed1.pos == self.bed2.pos:
+                self.chrom = self.bed1.chrom
+                self.pos = self.bed1.pos
+                self.current1 = self.bed1.current
+                self.current2 = self.bed2.current
+                self.bed1.readNext()
+                self.bed2.readNext()
+                return True
+            elif self.bed1.pos < self.bed2.pos:
+                self.bed1.readNext()
+            else:
+                self.bed2.readNext()
+
+class MATreader(BEDreader):
+    hdr = None
+    nreps = 0
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.stream = open(self.filename, "r")
+        self.hdr = readDelim(self.stream)
+        self.nreps = len(self.hdr)-4
+        self.readNext()
+
+    def storeCurrent(self, data):
+        self.current = data[4:]
+        
+class REGreader(BEDreader):
+
+    def storeCurrent(self, data):
+        self.current = [self.chrom, self.pos, int(data[2]), data[3], data[4]]
+
 
 def test():
     r = Resampler(9,3)
