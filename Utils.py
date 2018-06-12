@@ -771,7 +771,8 @@ class BEDreader():
         self.stream.close()
 
     def storeCurrent(self, data):
-        self.current = [int(data[4]), int(data[5]), data[1]]
+        #self.current = [int(data[4]), int(data[5]), data[1]]
+        self.current = [float(data[4]), float(data[5]), data[1]]
         
     def readNext(self):
         """Read one line from stream and store it in the `current' attribute. Also sets `chrom' 

@@ -35,6 +35,9 @@ Options:
                    file matching the items in file F (one per line).
   -r, --raw      | Print the contents of the header line, one item
                    per line.
+  -n, --ncols    | Print the number of columns in each line of the input.
+                   Output is tab delimited with two columns: line number
+                   and number of columns.
   -s N           | Use line N as the header. If N is not a number, it
                    is interpreted as a prefix indicating lines to be
                    skipped. The header will be the first line that
@@ -92,6 +95,8 @@ class Cols(Script.Script):
                 self.MODE = 'names'
             elif a in ['-m', '--matches']:
                 self.MODE = 'matches'
+            elif a in ['-n', '--ncols']:
+                self.MODE = 'ncols'
             elif a in ['-r', '--raw']:
                 self.MODE = 'names'
                 self.RAW = True
@@ -151,6 +156,11 @@ class Cols(Script.Script):
             sys.stderr.write("{}: {} columns, {}/{} matching.\n".format(filename, ncols, matching, total))
         elif self.MODE == 'fields':
             self.doFields(hdr, reader)
+        elif self.MODE == 'ncols':
+            ln = 1
+            for line in reader:
+                sys.stdout.write("{}\t{}\n".format(ln, len(line)))
+                ln += 1
 
     def doFields(self, hdr, reader):
         columns = []

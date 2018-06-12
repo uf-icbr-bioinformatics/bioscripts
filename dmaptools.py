@@ -11,11 +11,7 @@ import Script
 
 # Main
 
-COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr"
-
-def allCommands():
-    global CLASSES
-    return sorted(CLASSES.keys())
+COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth"
 
 def usage(what=None):
     if what == None:
@@ -785,9 +781,12 @@ class DMR2writer():
         end = self.positions[-1]
         if end - start < self.mindmrsize:
             return
+        #sys.stderr.write("{}\n".format(self.data))
+        #sys.stderr.write("Writing DMR: {}\n".format((self.chrom, start, end, end-start, sum(self.data) / ns, ns)))
         self.out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(self.chrom, start, end, end-start, sum(self.data) / ns, ns))
 
     def add(self, chrom, pos, diff):
+        #sys.stderr.write("Adding: {}\n".format((chrom, pos, diff)))
         # If we changed chromosomes...
         if chrom != self.chrom:
             # ... start new DMR
@@ -804,6 +803,7 @@ class DMR2writer():
         if (pos - self.pos) > self.maxsitedist:
             # ... start new DMR
             self.start(chrom, pos, diff)
+            return
 
         # Otherwise, extend current DMR
         self.pos = pos
@@ -1356,12 +1356,15 @@ class CORR():
             sys.stdout.write("Mean2:\t{}\n".format(np.mean(a2)))
             sys.stdout.write("Correlation:\t{}\n\n".format(cc[0,1]))
 
-### Diff
+### Difference of differential methylation rates.
 
 class DIFF():
+    """Compute the difference between differential methylation rates in different contrasts"""
     bedfile1 = None
     bedfile2 = None
     outfile = None
+    column = 4
+    threshold = 0.0
 
     def __init__(self, args):
         prev = ""
@@ -1369,8 +1372,14 @@ class DIFF():
             if prev == "-o":
                 self.outfile = a
                 prev = ""
-            elif a in ["-o"]:
-                prev = o
+            elif prev == "-c":
+                self.column = P.toInt(a) - 1
+                prev = ""
+            elif prev == "-t":
+                self.threshold = P.toFloat(a)
+                prev = ""
+            elif a in ["-o", "-c", "-t"]:
+                prev = a
             elif self.bedfile1 is None:
                 self.bedfile1 = P.isFile(a)
             else:
@@ -1379,7 +1388,71 @@ class DIFF():
             P.errmsg(P.NOFILE)
 
     def run(self):
-        pass
+        if self.outfile:
+            with open(self.outfile, "w") as out:
+                self.do_difference(out)
+        else:
+            self.do_difference(sys.stdout)
+
+    def do_difference(self, out):
+        with open(self.bedfile1, "r") as f1:
+            with open(self.bedfile2, "r") as f2:
+                f1.readline()
+                f2.readline()
+                r1 = csv.reader(f1, delimiter='\t')
+                r2 = csv.reader(f2, delimiter='\t')
+                (nout, nbad) = self.do_difference_aux(out, r1, r2)
+                sys.stderr.write("{} differences written.\n".format(nout))
+                sys.stderr.write("{} outliers skipped.\n".format(nbad))
+
+    def do_difference_aux(self, out, r1, r2):
+        nout = 0                # Site differences written
+        nbad = 0                # Outliers
+
+        line1 = r1.next()
+        line2 = r2.next()
+        chrom = line1[0]        # Assume both start with the same chrom
+        pos1 = int(line1[1])
+        pos2 = int(line2[1])
+        while True:
+            try:
+                if pos1 == pos2:
+                    v1 = float(line1[self.column])
+                    v2 = float(line2[self.column])
+                    if v1 >= self.threshold and v2 >= self.threshold:
+                        diff = v1 - v2
+                        out.write("{}\t{}\t{}\t{}\n".format(chrom, pos1, pos1 + 1, diff))
+                        nout += 1
+                    else:
+                        nbad += 1
+                    line1 = r1.next()
+                    line2 = r2.next()
+                    pos1 = int(line1[1])
+                    pos2 = int(line2[1])
+                elif pos1 < pos2:
+                    line1 = r1.next()
+                    pos1 = int(line1[1])
+                else:
+                    line2 = r2.next()
+                    pos2 = int(line2[1])
+
+                if line1[0] != chrom:
+                    chrom = line1[0]
+                    line2 = self.readUntil(r2, chrom)
+                    pos2 = int(line2[1])
+                elif line2[0] != chrom:
+                    chrom = line2[0]
+                    line1 = self.readUntil(r1, chrom)
+                    pos1 = int(line1[1])
+            except StopIteration:
+                return (nout, nbad)
+
+    def readUntil(self, r, chrom):
+        while True:
+            line = r.next()
+            if line[0] == chrom:
+                return line
+                
 
 ### window-based DMR analysis:
 ### Params:
@@ -1418,7 +1491,12 @@ CLASSES = {'merge': Merger,
            'winmat': WINMAT,
            'cmerge': CMERGE,
            'regavg': REGAVG,
-           'corr': CORR}
+           'corr': CORR,
+           'dodmeth': DIFF}
+
+def allCommands():
+    global CLASSES
+    return sorted(CLASSES.keys())
 
 if __name__ == "__main__":
     args = sys.argv[1:]
