@@ -25,7 +25,7 @@ Options:
  -h         | Print this usage message.
  -o outfile | Write output to `outfile' (default: standard output).
  -q qual    | Discard reads with quality score below `qual' (default: {}).
- -z         | Do not discard intervals with coverage of 0.
+ -z         | Discard intervals with coverage of 0.
  -w W       | Vector mode, using vector of length W.
 
 """.format(BAMreader.qual))
@@ -44,6 +44,7 @@ class BAMreader(object):
     qual = 10
     nalignments = 0
     vectsize = 0
+    rpkm_factor = 1.0
 
     def setBamfile(self, bamfile):
         self.bamfile = bamfile
@@ -61,18 +62,19 @@ class BAMreader(object):
                 c += 1
         return c
 
-    def addCountsToBED(self, bedfile, out, zeros=True):
+    def addCountsToBED(self, bedfile, out):
         self.countAlignments()
         rpkm_factor = 1000000000.0 / self.nalignments
-        for parsed in Utils.CSVreader(bedfile):
-            start = int(parsed[1])
-            end = int(parsed[2])
-            rl = end-start
-            if rl > 0:
-                c = self.countAlignmentsInRegion(parsed[0], start, end)
-                rpkm = c * rpkm_factor / rl
-                if c > 0 or self.zeros:
-                    out.write("\t".join(parsed) + "\t" + str(c) + "\t" + str(rpkm) + "\n")
+        with open(bedfile, "r") as f:
+            for parsed in Utils.CSVreader(f):
+                start = int(parsed[1])
+                end = int(parsed[2])
+                rl = end-start
+                if rl > 0:
+                    c = self.countAlignmentsInRegion(parsed[0], start, end)
+                    rpkm = c * rpkm_factor / rl
+                    if c > 0 or self.zeros:
+                        out.write("\t".join(parsed) + "\t" + str(c) + "\t" + str(rpkm) + "\n")
 
     ### Vector mode
 
@@ -89,6 +91,7 @@ class BAMreader(object):
                 end     = int(parsed[2])
                 strand  = parsed[3]
                 regsize = end - start
+                self.rpkm_factor = 1000000000.0 / (regsize * self.nalignments)
                 vec     = self.getCovVector(chrom, start, end, regsize)
                 res.init(regsize, self.vectsize)
                 ovec    = res.resample(vec)
@@ -106,12 +109,12 @@ class BAMreader(object):
                     out.write("\t" + str(v))
                 out.write("\n")
 
-    def getCovVector(self,chrom, start, end, regsize):
+    def getCovVector(self, chrom, start, end, regsize):
         vector = [0]*regsize
         for pc in self.aln.pileup(chrom, start, end):
             pos = pc.pos - start
             if pos >= 0 and pos < regsize:
-                vector[pos] = pc.n
+                vector[pos] = pc.n * self.rpkm_factor
         return vector
 
 def parseArgs(args):

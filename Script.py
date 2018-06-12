@@ -2,6 +2,7 @@
 
 import sys
 import os.path
+import Utils
 
 class Script():
     name = ""
@@ -26,6 +27,12 @@ class Script():
                            ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
         self.errorCode = 100
         self.defineErrors(errors)
+        self.copyright = """(c) 2018, A. Riva, ICBR Bioinformatics Core, University of Florida
+          L. Boatwright, ICBR Bioinformatics Core, University of Florida"""
+        self.init()
+
+    def init(self):
+        pass
 
     def defineErrors(self, errors):
         for e in errors:
@@ -38,7 +45,7 @@ class Script():
             self.errorCode += 1
     
     def showErrors(self):
-        for (code, name) in self.errorNames.iteritems():
+        for (code, name) in Utils.get_iterator(self.errorNames):
             sys.stderr.write("{}: {}\n".format(code, name))
 
     def usage(self, what=None):
@@ -72,7 +79,7 @@ and the following one (if any). Otherwise, returns None."""
                 else:
                     self.usage(what=harg[1])
             elif opt == '-v' or opt == '--version':
-                sys.stderr.write("{} version {}\n".format(self.name, self.version))
+                sys.stdout.write("{} version {}\n".format(self.name, self.version))
                 sys.exit(0)
             elif opt == '-E':
                 if len(harg) == 1:

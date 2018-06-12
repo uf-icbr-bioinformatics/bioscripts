@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import math
 
 import Utils
 import Script
@@ -36,12 +37,23 @@ Options:
          format produced by the `rank' command.
 
 """)
+    elif what == 'distance':
+        sys.stderr.write("""Usage: sorter.py distance [options...] infile1 infile2
+
+Options:
+
+  -o F | Write output to file F (default: stdout).
+  -i I | Row identifiers are in column I (default: 1).
+  -k K | Read row order from file K (default: stdin). This file should be in the
+         format produced by the `rank' command.
+
+""")
     else:
         sys.stderr.write("""sorter.py - Sort tables based on values in one or more columns.
 
 Usage sorter.py command [options... ] infile [outfile]
 
-where `command' is one of: rank, order.
+where `command' is one of: rank, order, distance, avgdiff.
 
 If command is `rank', computes a score for each row, and will output a tab-delimited file 
 containing row identifiers in the first column and scores in the second one. The file 
@@ -56,11 +68,12 @@ Use the -h option followed by the name of the command for command-specific optio
 
 ### Functions to compute scores
 
-def score_ASas(cols, values, avg, default):
+def score_ASas(values, avg, default):
     n = 0
     s = 0
-    for c in cols:
-        v = Utils.safeFloat(values[c], default=default)
+    for v in values:
+        if v == None:
+            v = default
         if v != None:
             s += v
             n += 1
@@ -70,52 +83,63 @@ def score_ASas(cols, values, avg, default):
     else:
         return s
 
-def score_A(cols, values):
-    return score_ASas(cols, values, True, 0)
+def score_A(values):
+    return score_ASas(values, True, 0)
 
-def score_a(cols, values):
-    return score_ASas(cols, values, True, None)
+def score_a(values):
+    return score_ASas(values, True, None)
 
-def score_S(cols, values):
-    return score_ASas(cols, values, False, 0)
+def score_S(values):
+    return score_ASas(values, False, 0)
 
-def score_s(cols, values):
-    return score_ASas(cols, values, False, None)
+def score_s(values):
+    return score_ASas(values, False, None)
 
-def score_m(cols, values):
+def score_m(values):
     m = sys.float_info.max
-    for c in cols:
-        v = Utils.safeFloat(values[c], default=None)
+    for v in values:
         if v and v < m:
             m = v
     return m
 
-def score_M(cols, values):
+def score_M(values):
     m = -sys.float_info.max
-    for c in cols:
-        v = Utils.safeFloat(values[c], default=None)
+    for v in values:
         if v and v > m:
             m = v
     return m
+
+def score_e(values):
+    values = values[1:]
+    n = len(values)
+    n2 = n / 2
+    a = float(sum(values[:10]) + sum(values[-10:]))
+    b = sum(values[n2-25:n2+25])
+    if a == 0.0:
+        a = 0.0001
+    return b/a
 
 SCOREFUNCS = {'A': score_A,
               'a': score_a,
               'S': score_S,
               's': score_s,
               'm': score_m,
-              'M': score_M}
+              'M': score_M,
+              'e': score_e}
 
 ### Main class
 
 class Sorter(Script.Script):
     mode = ""
     infile = None
+    infile2 = None              # For distance
     outfile = None
     rankfile = None
     orderfile = ""
     idcol = 0
     score = 'a'
     scorecols = None
+    distance = None
     reverse = True
 
     def parseArgs(self, args):
@@ -142,16 +166,21 @@ class Sorter(Script.Script):
             elif next == '-k':
                 self.rankfile = self.isFile(a)
                 next = ""
-            elif a in ['-o', '-i', '-c', '-s', '-k']:
+            elif next == '-d':
+                self.distance = self.toFloat(a)
+                next = ""
+            elif a in ['-o', '-i', '-c', '-s', '-k', '-d']:
                 next = a
             elif a == '-r':
                 self.reverse = False
-            else:
+            elif self.infile == None:
                 self.infile = self.isFile(a)
+            else:
+                self.infile2 = self.isFile(a)
 
         if self.infile == None:
             self.errmsg(self.NOFILE)
-        if self.mode == 'rank' and self.scorecols == None:
+        if self.mode == 'rank' and self.score != 'e' and self.scorecols == None:
             self.errmsg(self.NOCOLS)
         return True
 
@@ -160,16 +189,22 @@ class Sorter(Script.Script):
             self.doRank()
         elif self.mode == 'order':
             self.doOrder()
+        elif self.mode == 'distance':
+            self.doDistance()
+        elif self.mode == 'avgdiff':
+            self.doDistance(distfun=Utils.avgdiff)
 
     def doRank(self):
         scorefunc = SCOREFUNCS[self.score]
         scores = []
+        previous = None
 
         with open(self.infile, "r") as f:
             r = Utils.CSVreader(f)
             for line in r:
                 gene = line[self.idcol]
-                score = scorefunc(self.scorecols, line)
+                values = Utils.colsToFloat(line, self.scorecols)
+                score = scorefunc(values)
                 scores.append([gene, score])
 
         scores.sort(key=lambda r: r[1], reverse=self.reverse)
@@ -181,6 +216,8 @@ class Sorter(Script.Script):
         try:
             for sc in scores:
                 out.write("{}\t{}\n".format(*sc))
+        except IOError:
+            pass
         finally:
             out.close()
 
@@ -214,14 +251,50 @@ class Sorter(Script.Script):
         else:
             out = sys.stdout
         try:
-            print ranking
             for g in ranking:
-                out.write("\t".join(rows[g]) + "\n")
+                if g in rows:
+                    out.write("\t".join(rows[g]) + "\n")
+        except IOError:
+            return
+        finally:
+            out.close()
+
+    def doDistance(self, distfun=Utils.distance):
+        scorefunc = SCOREFUNCS[self.score]
+        scores = []
+        with open(self.infile, "r") as f1:
+            with open(self.infile2, "r") as f2:
+                r1 = Utils.CSVreader(f1)
+                r2 = Utils.CSVreader(f2)
+                try:
+                    while True:
+                        line1 = r1.next()
+                        line2 = r2.next()
+                        gene1 = line1[self.idcol]
+                        gene2 = line2[self.idcol]
+                        if gene1 != gene2:
+                            sys.stderr.write("Error: gene order is different!")
+                            return
+                        values1 = Utils.colsToFloat(line1, self.scorecols)
+                        values2 = Utils.colsToFloat(line2, self.scorecols)
+                        dist = distfun(values1, values2)
+                        scores.append([gene1, dist])
+                except StopIteration:
+                    pass
+        scores.sort(key=lambda r: r[1], reverse=self.reverse)
+
+        if self.outfile:
+            out = open(self.outfile, "w")
+        else:
+            out = sys.stdout
+        try:
+            for sc in scores:
+                out.write("{}\t{}\n".format(*sc))
         finally:
             out.close()
 
 P = Sorter("sorter.py", version="1.0", usage=usage,
-           errors=[('NOCMD', 'Missing command', 'The first argument should be one of: rank, order.'),
+           errors=[('NOCMD', 'Missing command', 'The first argument should be one of: rank, order, distance.'),
                    ('NOCOLS', 'Missing column specification', 'Please specify one or more target columns with the -c option.')])
 
 if __name__ == "__main__":

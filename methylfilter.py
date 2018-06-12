@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-## (c) 2014, Alberto Riva (ariva@ufl.edu)
+## (c) 2014-2017, Alberto Riva (ariva@ufl.edu)
 ## DiBiG, ICBR Bioinformatics, University of Florida
 
 import sys
@@ -41,6 +41,7 @@ Options:
  -s, --summary filename | Write to `filename' a summary showing the number of
                           sequences written to each output file.
  -gcg                   | Do not exclude GCG sites from analysis.
+ -gc                    | Output is based on GC methylation instead of CG.
 
 """)
 
@@ -56,6 +57,7 @@ class refDesc():
     CGpositions = []
     GCpositions = []
     numCGs = 0
+    numGCs = 0
     excludeGCG = True
 
     def __init__(self, ref, excludeGCG):
@@ -66,6 +68,7 @@ class refDesc():
         self.CGpositions = detectCG(ref, length, excludeGCG=self.excludeGCG)
         self.GCpositions = detectGC(ref, length, excludeGCG=self.excludeGCG)
         self.numCGs = len(self.CGpositions)
+        self.numGCs = len(self.GCpositions)
 
 class outFile():
     """A class that writes sequences whose methylation rate is in a specified range to a file."""
@@ -103,6 +106,7 @@ class mfrun():
     summaryFile = False         # Name of summary file, if desired
     summaryStream = None
     excludeGCG = True           # 
+    mode = "CG"
 
     def parseArgs(self, args):
         """Parse command-line arguments creating outfiles."""
@@ -124,6 +128,8 @@ class mfrun():
                 prev = "s"
             elif (arg == "-gcg"):
                 self.excludeGCG = False
+            elif arg == "-gc":
+                self.mode = "GC"
             elif self.infile == None:
                 self.infile = P.isFile(arg)
             else:
@@ -153,9 +159,12 @@ class mfrun():
             if self.writeRef:
                 of.writeSeq(self.rd.sequence, False) # don't count ref seq in number of written sequences
         if self.reportFile:
-            print "Writing report to {}".format(self.reportFile)
+            print("Writing report to {}".format(self.reportFile))
             self.reportStream = open(self.reportFile, "w")
-            self.reportStream.write("Sequence\t% CG Meth\tConv\tTot\t% GC Meth\tFilename\n")
+            if self.mode == "CG":
+                self.reportStream.write("Sequence\t% CG Meth\tConv\tTot\t% GC Meth\tFilename\n")
+            elif self.mode == "GC":
+                self.reportStream.write("Sequence\t% GC Meth\tConv\tTot\t% CG Meth\tFilename\n")
 
     def closeAll(self):
         """Close all output files."""
@@ -167,7 +176,7 @@ class mfrun():
     def showOutfiles(self):
         """Show all defined output files with their ranges."""
         for of in self.outfiles:
-            print "{}% - {}% -> {}".format(of.min, of.max, of.filename)
+            print("{}% - {}% -> {}".format(of.min, of.max, of.filename))
 
     def findOutfile(self, x):
         """Find the output file for value `x'."""
@@ -180,9 +189,9 @@ class mfrun():
         tot = 0
         for of in self.outfiles:
             tot = tot + of.nout
-            print "{:5}  {}".format(of.nout, of.filename)
+            print("{:5}  {}".format(of.nout, of.filename))
         if self.summaryFile:
-            print "Writing summary to {}".format(self.summaryFile)
+            print("Writing summary to {}".format(self.summaryFile))
             with open(self.summaryFile, "w") as out:
                 out.write("Filename\tMin\tMax\tNseqs\n")
                 for of in self.outfiles:
@@ -270,29 +279,32 @@ def main():
         sys.stderr.write("""No output files specified. Please use the -h option for usage.\n""")
         sys.exit(-4)
 
-    seqs = loadSequences(infile)
+    seqs = loadSequences(run.infile)
     rd = refDesc(seqs.next(), run.excludeGCG)   # reference sequence
     run.rd = rd
 
-    print "Reference sequence loaded from file `{}'.".format(infile)
+    print("Reference sequence loaded from file `{}'.".format(run.infile))
     if run.excludeGCG:
-        print "Excluding GCG positions."
+        print("Excluding GCG positions.")
     else:
-        print "Not excluding GCG positions."
-    print "{}bp, {} CG positions.".format(rd.length, rd.numCGs)
+        print("Not excluding GCG positions.")
+    if run.mode == "CG":
+        print("{}bp, {} CG positions.".format(rd.length, rd.numCGs))
+    elif run.mode == "GC":
+        print("{}bp, {} GC positions.".format(rd.length, rd.numGCs))
 
     try:
         run.openAll()
-        print "{} output files opened:".format(len(run.outfiles))
+        print("{} output files opened:".format(len(run.outfiles)))
         run.showOutfiles()
-        print "Parsing sequences..."
+        print("Parsing sequences...")
         
         nread = 0
         for s in seqs:
             nread = nread + 1
             (CGcnt, CGtot) = countCGconverted(rd, s)
             (GCcnt, GCtot) = countGCconverted(rd, s)
-            if GCtot > 0:
+            if CGtot > 0:
                 CGp = 100 * (1.0 - (CGcnt * 1.0 / CGtot)) # ensure we work with floats
             else:
                 CGp = 0.0
@@ -300,19 +312,28 @@ def main():
                 GCp = 100 * (1.0 - (GCcnt * 1.0 / GCtot))
             else:
                 GCp = 0.0
-            o = run.findOutfile(CGp)
-            if o:
-                o.writeSeq(s)
-                run.report(s, CGp, CGcnt, CGtot, GCp, o)
-            else:
-                run.report(s, CGp, CGcnt, CGtot, GCp, None)
+            if run.mode == "CG":
+                o = run.findOutfile(CGp)
+                if o:
+                    o.writeSeq(s)
+                    run.report(s, CGp, CGcnt, CGtot, GCp, o)
+                else:
+                    run.report(s, CGp, CGcnt, CGtot, GCp, None)
+            elif run.mode == "GC":
+                o = run.findOutfile(GCp)
+                if o:
+                    o.writeSeq(s)
+                    run.report(s, GCp, GCcnt, GCtot, CGp, o)
+                else:
+                    run.report(s, GCp, GCcnt, GCtot, CGp, None)
+
     finally:
         run.closeAll()
 
-    print "Done. {} sequences read.".format(nread)
-    print "Report:"
+    print("Done. {} sequences read.".format(nread))
+    print("Report:")
     nwritten = run.showSummary()
-    print "{} sequences written.".format(nwritten)
+    print("{} sequences written.".format(nwritten))
 
 if __name__ == "__main__":
     

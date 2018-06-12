@@ -5,12 +5,16 @@ import os.path
 import Utils
 import Script
 
-def usage():
-    sys.stderr.write("""demux.py - Operate on barcodes in fastq files
+__doc__ = """Operate on barcodes in fastq files"""
+
+def usage(what=None):
+    sys.stderr.write("""demux.py - {}
 
 Usage: demux.py detect [options] fastq
        demux.py split [options] fastq1 [fastq2]
        demux.py grep [options] fastq1 [fastq2]
+       demux.py distr [options] fastq1 [fastq2]
+       demux.py distr [options] fasta
 
 The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
 the input file is assumed to be in fastq format and the barcodes are extracted from 
@@ -32,6 +36,9 @@ pattern, in either the left or right mate of each pair. Use -lt to specify the p
 to be searched for in the left mate, and -rt for the right mate (if not specified, defaults
 to reverse-complement of -lt).
 
+The `distr' command distributes the reads in the input file(s) into D different files, where
+D is specified with the -d option.
+
 Options:
 
   -b FILE | File containing barcode sequences
@@ -43,8 +50,10 @@ Options:
   -p N    | Do not show detected barcodes occurring in less than N% of reads (default: {})
   -lt P   | Search for pattern P in left reads.
   -rt P   | Search for pattern P in right reads.
+  -d D    | Number of files to distribute reads to (default: {})
+  -o O    | Prefix for files for distributed reads.
 
-""".format(Demux.maxmismatch, Demux.ndetect, Demux.minpct))
+""".format(__doc__, Demux.maxmismatch, Demux.ndetect, Demux.minpct, Demux.distr))
 
 ### Program object
 
@@ -62,12 +71,14 @@ class Demux(Script.Script):
     bclen = None
     leftTarget = None
     rightTarget = None
+    distr = 1
+    distrout = None
 
     def parseArgs(self, args):
         self.nf = 0
         self.standardOpts(args)
         cmd = args[0]
-        if cmd in ['split', 'detect', 'grep']:
+        if cmd in ['split', 'detect', 'grep', 'distr']:
             self.mode = cmd
         else:
             P.errmsg(P.NOCMD)
@@ -95,7 +106,13 @@ class Demux(Script.Script):
             elif next == '-rt':
                 self.rightTarget = a
                 next = ""
-            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt']:
+            elif next == '-d':
+                self.distr = self.toInt(a)
+                next = ""
+            elif next == '-o':
+                self.distrout = a
+                next = ""
+            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt', '-o', '-d']:
                 next = a
             elif a == '-r':
                 self.revcomp = True
@@ -109,7 +126,7 @@ class Demux(Script.Script):
                 self.nf += 1
 
 P = Demux("demux", version="1.0", usage=usage,
-          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect.'),
+          errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect, grep, distr.'),
                   ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.') ])
 
 ### Utils
@@ -127,11 +144,12 @@ def revcomp(seq):
     return rc
 
 def distance(s1, s2):
+    #print("distance {} {} \n".format(s1, s2))
     d = 0
-    for i in range(len(s1)):
+    for i in range(min(len(s1), len(s2))):
         if s1[i] != s2[i]:
             d += 1
-    # print "{} {}: {}".format(s1, s2, d)
+    # print("{} {}: {}".format(s1, s2, d))
     return d
 
 ### Classes
@@ -189,6 +207,8 @@ class BarcodeMgr():
     def initFromFile(self, filename, rc=False, undet=False):
         with open(filename, "r") as f:
             for line in f:
+                if line[0] == '#':
+                    continue
                 line = line.rstrip("\r\n").split("\t")
                 if len(line) < 2:
                     continue
@@ -202,26 +222,35 @@ class BarcodeMgr():
         if undet:
             self.add("UND", "*")
 
+    def initForDistribute(self, n):
+        for i in range(1, n+1):
+            si = str(i)
+            self.add(si, si)
+
     def add(self, name, seq):
         b = Barcode(name, seq)
         self.barcodeseqs.append(seq)
         self.barcodes[seq] = b
 
     def openAll(self, filename, filename2=None):
-        for b in self.barcodes.itervalues():
+        for b in self.barcodes.values():
             b.openStream(filename, filename2)
 
     def allFilenames(self):
         result = []
-        for b in self.barcodes.itervalues():
+        for b in self.barcodes.values():
             result.append(b.filename)
             if b.filename2:
                 result.append(b.filename2)
         return result
 
     def closeAll(self):
-        for b in self.barcodes.itervalues():
-            b.closeStream()
+        try:
+            for b in self.barcodes.itervalues():
+                b.closeStream()
+        except AttributeError:
+            for b in self.barcodes.values():
+                b.closeStream()
 
     def findBest(self, seq, maxmismatch=1):
         maxd = len(seq)
@@ -232,7 +261,7 @@ class BarcodeMgr():
                 if d < maxd:
                     maxd = d
                     best = bc
-        # print maxd
+        # print(maxd)
         if maxd <= maxmismatch:
             bb = self.barcodes[best]
             self.nhits += 1
@@ -258,22 +287,25 @@ class BarcodeMgr():
         ranking = [b for b in self.barcodes.itervalues()]
         ranking.sort(key=lambda b:b.nhits, reverse=True)
 
-        sys.stdout.write("Name\tSeq\tHits\tPct\tFile1\tFile2\n")
-        for b in ranking:
-            seq = b.seq
-            if P.revcomp:
-                seq = revcomp(seq)
-            if self.nhits == 0:
-                pct = 0
-            else:
-                pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
-            if pct >= P.minpct:
-                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
-            else:
-                hiddenb += 1
-                hiddenh += b.nhits
-        if hiddenb > 0 and self.nhits > 0:
-            sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, Utils.f2dd(100.0 * hiddenh / self.nhits)))
+        try:
+            sys.stdout.write("#Name\tSeq\tHits\tPct\tFile1\tFile2\n")
+            for b in ranking:
+                seq = b.seq
+                if P.revcomp:
+                    seq = revcomp(seq)
+                if self.nhits == 0:
+                    pct = 0
+                else:
+                    pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
+                if pct >= P.minpct:
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
+                else:
+                    hiddenb += 1
+                    hiddenh += b.nhits
+            if hiddenb > 0 and self.nhits > 0:
+                sys.stdout.write("Other\t({})\t{}\t{}\t\t\n".format(hiddenb, hiddenh, Utils.f2dd(100.0 * hiddenh / self.nhits)))
+        except IOError:
+            pass
 
 class FastqRec():
     name = ""
@@ -335,7 +367,7 @@ class FastqReader():
                 break
             bc = self.fq.getBarcode(bclen)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
-            # print "best: " + bo.seq
+            # print("best: " + bo.seq)
             # raw_input()
             if bo:
                 self.ngood += 1
@@ -355,8 +387,11 @@ class FastqReader():
             dm.findOrCreate(bc)
             if self.nread == ndetect:
                 break
-        sys.stdout.write("# Reads examined: {}\n".format(dm.nhits))
-        dm.showCounts()
+        try:
+            sys.stdout.write("# Reads examined: {}\n".format(dm.nhits))
+            dm.showCounts()
+        except IOError:
+            pass
 
 class FastaReader(FastqReader):
 
@@ -432,9 +467,9 @@ class PairedFastqReader():
             if bc1 != bc2:
                 self.nbad += 1
                 continue
-            # print "barcode: " + bc1
+            # print("barcode: " + bc1)
             bo = dm.findBest(bc1, maxmismatch=P.maxmismatch)
-            # print "best: " + bo.seq
+            # print("best: " + bo.seq)
             # raw_input()
             if bo:
                 self.ngood += 1
@@ -468,6 +503,119 @@ class PairedFastqReader():
         sys.stderr.write("Total read pairs: {}\n".format(ngood+nbad))
         sys.stderr.write("Matching read pairs: {}\n".format(ngood))
         sys.stderr.write("Not matching read pairs: {}\n".format(nbad))
+
+### Distribute
+
+def doDistribute():
+    dm = BarcodeMgr()
+    dm.initForDistribute(P.distr)
+    nameleft = getFastqBasename(P.fqleft)
+    if P.fqright:
+        nameright = getFastqBasename(P.fqright)
+    else:
+        nameright = None
+    try:
+        dm.openAll(nameleft, nameright)
+        pfr = PairedFastqReader(P.fqleft, P.fqright)
+        i = 0
+        while True:
+            pfr.nextRead()
+            if not pfr.reader1.stream:
+                break
+            label = dm.barcodeseqs[i]
+            bc = dm.barcodes[label]
+            #print("writing {} to {}, {}".format(i, label, bc))
+            #raw_input()
+            bc.writeRecord(pfr.fq1, pfr.fq2)
+            i += 1
+            if i == P.distr:
+                i = 0
+    finally:
+        dm.closeAll()
+
+def doDistribute2():
+    outfiles1 = []
+    outfiles2 = []
+    outstreams1 = []
+    outstreams2 = []
+
+    if not P.distrout:
+        P.distrout = "out"
+
+    sys.stderr.write("Distributing reads to:\n")
+    if P.nf == 2:
+
+        for i in range(1, P.distr + 1):
+            outfiles1.append("{}.{}.R1.fastq.gz".format(P.distrout, i))
+            outfiles2.append("{}.{}.R2.fastq.gz".format(P.distrout, i))
+
+        try:
+            for i in range(P.distr):
+                sys.stderr.write("  {}, {}\n".format(outfiles1[i], outfiles2[i]))
+                outstreams1.append(Utils.genOpen(outfiles1[i], "w"))
+                outstreams2.append(Utils.genOpen(outfiles2[i], "w"))
+
+            in1 = Utils.genOpen(P.fqleft, "r")
+            in2 = Utils.genOpen(P.fqright, "r")
+            i = 0
+            while True:
+                r = in1.readline()
+                if not r:
+                    break
+                o1 = outstreams1[i]
+                o2 = outstreams2[i]
+                o1.write(r)
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                o2.write(in2.readline())
+                i += 1
+                if i == P.distr:
+                    i = 0
+        finally:
+            in1.close()
+            in2.close()
+            for s in outstreams1:
+                s.close()
+            for s in outstreams2:
+                s.close()
+    else:
+        for i in range(i, P.distr + 1):
+            sys.stderr.write("  {}\n".format(outfiles1[i]))
+            outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
+
+def doDistributeFasta():
+    outfiles = []
+    outstreams = []
+
+    if not P.distrout:
+        P.distrout = "out"
+
+    sys.stderr.write("Distributing sequences to {} FASTA files.\n".format(P.distr))
+    for i in range(1, P.distr + 1):
+        name = "{}.{}.fasta".format(P.distrout, i)
+        outfiles.append(name)
+        outstreams.append(Utils.genOpen(name, "w"))
+    try:
+        FR = FastaReader(P.fqleft)
+        i = 0
+        while True:
+            r = FR.nextRead()
+            if not r:
+                break
+            o = outstreams[i]
+            o.write(">{}\n{}\n".format(FR.fq.name, FR.fq.seq))
+            i += 1
+            if i == P.distr:
+                i = 0
+    finally:
+        for o in outstreams:
+            o.close()
+    for o in outfiles:
+        sys.stdout.write("{}\n".format(o))
 
 ### Main
 
@@ -518,6 +666,15 @@ def main(args):
 
         fr = PairedFastqReader(P.fqleft, P.fqright)
         fr.grep(bm, nameleft, nameright, P.leftTarget, P.rightTarget)
+    
+    elif P.mode == 'distr':
+        fmt = Utils.detectFileFormat(P.fqleft)
+        if fmt == "fastq":
+            doDistribute2()
+        elif fmt == "fasta":
+            doDistributeFasta()
+        else:
+            sys.stderr.write("File {} is in an unknown format.\n".format(P.fleft))
         
 if __name__ == "__main__":
     args = sys.argv[1:]
