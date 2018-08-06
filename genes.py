@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import csv
 import os.path
 import Utils
 import Script
@@ -12,7 +13,7 @@ def usage(what=None):
 
 Usage: genes.py [options] command command-arguments...
 
-where `command' can be one of: makedb, classify, region, transcripts, overlap.
+where `command' can be one of: makedb, classify, region, transcripts, overlap, closest.
 
 Common options:
 
@@ -201,7 +202,7 @@ class Prog(Script.Script):
                 self.args.append(a)
             else:
                 cmd = a
-        if cmd not in ['region', 'transcripts', 'classify', 'split', 'makedb', 'overlap']:
+        if cmd not in ['region', 'transcripts', 'classify', 'split', 'makedb', 'overlap', 'closest']:
             P.errmsg(P.NOCMD)
         return cmd
 
@@ -471,18 +472,20 @@ def doClassify():
         for reg in regions:
             if type(reg).__name__ == 'str':
                 reg = parseRegion(reg)
-            pos = reg[1]
-            genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+            start = reg[1]
+            end   = reg[2]
+            pos   = (start + end) / 2
+            genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
             if P.mode == "t":
                 for g in genes:
                     for tr in g.transcripts:
                         c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                        out.write("{}\t{}\t{}\t{}\n".format(g.name, tr.ID, tr.accession, c))
+                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c))
             elif P.mode == "g":
                 for g in genes:
                     name = g.name
                     c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                    out.write("{}\t{}\t{}\n".format(g.name, g.ID, c))
+                    out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c))
             elif P.mode == "s":
                 if len(genes) == 0:
                     C.add('o')
@@ -536,6 +539,33 @@ def doSplit():
         C.closeStreams()
         C.report('s')
 
+def doClosest():
+    infile = P.args[0]
+    nin = 0
+    nout = 0
+
+    if P.outfile:
+        out = open(P.outfile, "w")
+    else:
+        out = sys.stdout
+
+    try:
+        with open(infile, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                nin += 1
+                (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
+                if geneID:
+                    nout += 1
+                    gene = P.gl.findGene(geneID)
+                    outrow = line + [str(dist), gene.ID, gene.name]
+                    out.write("\t".join(outrow) + "\n")
+        sys.stderr.write("Classified {}/[] regions.\n".format(nin, nout))
+
+    finally:
+        if P.outfile:
+            out.close()
+
 def main(args):
     cmd = P.parseArgs(args)
     P.gl = loadGenes(P.source)
@@ -552,6 +582,8 @@ def main(args):
             doMakeDB()
         elif cmd == 'overlap':
             doOverlap()
+        elif cmd == 'closest':
+            doClosest()
     except IOError:
         return
 

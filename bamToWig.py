@@ -6,12 +6,12 @@ import subprocess
 import pysam
 
 import Script
-from Utils import LinkedList, LinkedListPool, GenomicWindower
+from Utils import LinkedList, LinkedListPool, GenomicWindower, DualBAMReader
 
 def usage():
     sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
 
-Usage: bamToWig.py [-dntwfp] [-o wigfile] bamfile
+    Usage: bamToWig.py [options] bamfile
 
 Options: 
  -o FILE  | Name of output file (default: stdout)
@@ -20,6 +20,8 @@ Options:
  -s SCALE | Scale values by SCALE (y = r * SCALE / N)
  -t S     | Set track title to S
  -d D     | Set track description to D
+ -b BAM2  | Use bamfile BAM2 as baseline: report difference 
+            between bamfile and BAM2 (clipped at 0).
  -e       | Do not remove ERCC controls
  -f       | Converts diff file to bedGraph (value column: 8)
  -m       | Convert diff meth file to bedGraph (value column: 5)
@@ -44,6 +46,7 @@ class trackdata():
     homer = False
     ercc = False                # If True, preserve ERCC reads
     atac = False
+    bambase = None
 
     def trackHeader(self):
         if self.diff or self.homer:
@@ -102,6 +105,63 @@ def bamToWig(bamfile, trackdata):
             if pos > windowend:
                 if wanted: 
                     out.write("{}\n".format((1.0 * windowsum / window) * f))
+                if pos > windowend + window: # gap - need to start a new track
+                    if wanted:
+                        out.write(trackdata.trackFirstLine(chrom, pos))
+                    windowstart = pos
+                    windowend = windowstart + window
+                    windowsum = dp
+                else:           #  still in current track
+                    windowstart = windowend
+                    windowend = windowstart + window
+                    windowsum = dp
+            else:
+                windowsum += dp
+    finally:
+        if trackdata.outfile:
+            out.close()
+
+def bamToWigDiff(bamfile, bamfile2, trackdata):
+    wanted = True
+    currChrom = ""
+    windowstart = 0
+    windowend = 0
+    windowsum = 0
+    window = trackdata.window
+    scale = trackdata.scale
+
+    if trackdata.outfile:
+        out = open(trackdata.outfile, "w")
+    else:
+        out = sys.stdout
+
+    try:
+        br = DualBAMReader(bamfile, bamfile2)
+
+        out.write(trackdata.trackHeader())
+
+        while True:
+            row = br.next()
+            if row is None:
+                break
+            chrom = row[0]
+            pos = int(row[1])
+            dp = float(row[2]) - float(row[3])
+            if dp < 0:
+                dp = 0
+            if chrom != currChrom:
+                if currChrom != "":
+                    out.write("{}\n".format((1.0 * windowsum / window)))
+                currChrom = chrom
+                wanted = (not chrom.startswith("ERCC") or trackdata.ercc)
+                windowstart = pos
+                windowend = windowstart + window
+                windowsum = dp
+                if wanted:
+                    out.write(trackdata.trackFirstLine(chrom, pos))
+            if pos > windowend:
+                if wanted: 
+                    out.write("{}\n".format((1.0 * windowsum / window)))
                 if pos > windowend + window: # gap - need to start a new track
                     if wanted:
                         out.write(trackdata.trackFirstLine(chrom, pos))
@@ -350,7 +410,10 @@ def parseArgs(args, td):
         elif next == "-d":
             td.description = a
             next = ""
-        elif a in ["-n", "-o", "-w", "-t", "-d", "-p", "-s"]:
+        elif next == "-b":
+            td.bambase = P.isFile(a)
+            next = ""
+        elif a in ["-n", "-o", "-w", "-t", "-d", "-p", "-s", "-b"]:
             next = a
         else:
             infile = P.isFile(a)
@@ -369,6 +432,8 @@ def main(args):
         homerToBedGraph(infile, td)
     elif td.atac:
         bamToWigA(td)
+    elif td.bambase:
+        bamToWigDiff(infile, td.bambase, td)
     else:
         bamToWig(infile, td)
 

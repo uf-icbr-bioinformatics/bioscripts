@@ -695,7 +695,7 @@ class DMR():
         DW = DMRwriter(out, self.gap*self.winsize, samedir=self.samedir)
         BR1 = BEDreader(self.bedfile1, jump=self.jump)
         BR2 = BEDreader(self.bedfile2, jump=self.jump)
-        chrom = BR1.chrom       # assume that both BED file start with the same chrom - should check this!
+        chrom = BR1.chrom       # assume that both BED files start with the same chrom - should check this!
         
         start = 0
         end = self.winsize

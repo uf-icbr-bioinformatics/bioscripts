@@ -12,7 +12,7 @@ import pysam
 import string
 import random
 
-from bedindex import loadindex
+#from BEDutils import loadindex
 
 PYTHON_VERSION = sys.version_info[0]
 
@@ -913,3 +913,86 @@ def test():
     #print(v)
     return r.resample(v)
     #return r.resample([1,1,1])
+
+### BAM reader
+
+class BAMReader():
+    filename = ""
+    bam = None
+    idxstats = {}
+    references = ()
+    pileup = None
+    factor = 1
+    scale = 1000000000
+
+    def __init__(self, filename):
+        self.filename = filename
+        self.bam = pysam.AlignmentFile(filename, "rb")
+        self.references = self.bam.references
+        self.idxstats = self.getIdxstats()
+
+    def getIdxstats(self):
+        result = {}
+        idxs = self.bam.get_index_statistics()
+        for idx in idxs:
+            result[idx.contig] = idx
+        return result
+
+    def initPileup(self, chrom):
+        if chrom in self.idxstats:
+            naligned = self.idxstats[chrom].mapped
+        else:
+            return None
+        if not naligned:
+            return None
+        self.factor = 1.0 * self.scale / naligned
+        self.pileup = self.bam.pileup(contig=chrom)
+        return self.pileup
+
+    def getFromPileup(self):
+        try:
+            r = self.pileup.next()
+        except StopIteration:
+            return None
+        return (r.pos, r.n / self.factor)
+        
+class DualBAMReader():
+    bamr1 = None
+    bamr2 = None
+    chridx = None
+    references = ()
+    pr1 = None
+    pr2 = None
+    chrom = None
+
+    def __init__(self, bamfile, bamctrl):
+        self.bamr1 = BAMReader(bamfile)
+        self.bamr2 = BAMReader(bamctrl)
+        self.references = self.bamr1.references
+        self.chridx = 0
+        self.chrom = self.references[self.chridx]
+        self.bamr1.initPileup(self.chrom)
+        self.bamr2.initPileup(self.chrom)
+        self.pr1 = self.bamr1.getFromPileup()
+        self.pr2 = self.bamr2.getFromPileup()
+
+    def next(self):
+        while True:
+            if self.pr1 is None or self.pr2 is None: # One of the two pileups is done...
+                self.chridx += 1                     # Advance
+                if self.chridx == len(self.references): # Done?
+                    return None
+                self.chrom = self.references[self.chridx]
+                self.bamr1.initPileup(self.chrom)
+                self.bamr2.initPileup(self.chrom)
+                self.pr1 = self.bamr1.getFromPileup()
+                self.pr2 = self.bamr2.getFromPileup()
+            if self.pr1[0] == self.pr2[0]:
+                result = [self.chrom, self.pr1[0], self.pr1[1], self.pr2[1]]
+                self.pr1 = self.bamr1.getFromPileup()
+                self.pr2 = self.bamr2.getFromPileup()
+                return result
+            elif self.pr1[0] < self.pr2[0]:
+                self.pr1 = self.bamr1.getFromPileup()
+            else:
+                self.pr2 = self.bamr2.getFromPileup()

@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+import sys
+
+RC = {'A': 'T',
+      'C': 'G',
+      'G': 'C',
+      'T': 'A',
+      'a': 't',
+      'c': 'g',
+      'g': 'c',
+      't': 'a',
+      'N': 'N',
+      'n': 'n'}
+
+RNA_RC = {'A': 'U',
+      'C': 'G',
+      'G': 'C',
+      'U': 'A',
+      'a': 'u',
+      'c': 'g',
+      'g': 'c',
+      'u': 'a',
+      'N': 'N',
+      'n': 'n'}
+
+def revcomp(s):
+  if "U" in s or "u" in s:
+    table = RNA_RC
+  else:
+    table = RC
+  rc = []
+  for b in s[::-1]:
+    if b in table:
+      rc.append(table[b])
+    else:
+      rc.append('X')
+  return "".join(rc)
+
+def usage():
+  sys.stdout.write("""revcomp - reverse complement sequences
+
+Prints to standard output the reverse-complement of each sequence passed as arguments. 
+A<->T, C<->G, Ns remain Ns, all other characters are converted to X.
+
+If a sequence contains a U or a u it is assumed to be RNA, and U is used in place of T.
+""")
+
+if __name__ == "__main__":
+  if not sys.argv or "-h" in sys.argv:
+    usage()
+  else:
+    for a in sys.argv[1:]:
+      sys.stdout.write(revcomp(a) + "\n")

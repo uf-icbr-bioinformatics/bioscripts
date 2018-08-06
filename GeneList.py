@@ -284,113 +284,180 @@ class Genelist():
                         intid += 1
 
 class GenelistDB(Genelist):
-    conn = None                 # DB connection
+    dbname = None
     preloaded = False           # Did we preload all genes into the Genelist?
 
     def allGeneNames(self):
-        curr = self.conn.cursor()
-        curr.execute("SELECT name FROM Genes ORDER BY name")
-        names = [ r[0] for r in curr.fetchall() ]
-        curr.close()
+        names = []
+        conn = sql.connect(self.dbname)
+        try:
+            curr = conn.execute("SELECT name FROM Genes ORDER BY name")
+            names = [ r[0] for r in curr.fetchall() ]
+        finally:
+            conn.close()
         return names
 
     def findGene(self, name, chrom=None):
-        gcur = self.conn.cursor()
-        tcur = self.conn.cursor()
-        ecur = self.conn.cursor()
-        gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=? OR name=? OR geneid=? OR ensg=?", 
-                     (name, name, name, name))
-        row = gcur.fetchone()
-        if row:
-            gid = row[0]
-            g = Gene(gid, row[5], row[6])
-            for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
-                setattr(g, pair[0], pair[1])
-            for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
-                tid = trow[0]
-                tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
-                tr.exons = []
-                for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
-                    setattr(tr, pair[0], pair[1])
-                for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
-                    tr.addExon(erow[0], erow[1])
-                g.addTranscript(tr)
-            return g
-        else:
-            return None
-
-    def allTranscriptNames(self):
-        curr = self.conn.cursor()
-        curr.execute("SELECT ID FROM Transcripts ORDER BY ID")
-        names = [ r[0] for r in curr.fetchall() ]
-        curr.close()
-        return names
-
-    def findTranscript(self, name, chrom=None):
-        tcur = self.conn.cursor()
-        ecur = self.conn.cursor()
-
-        tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE ID=? OR name=? OR accession=? OR enst=?",
-                     (name, name, name, name))
-        trow = tcur.fetchone()
-        if trow:
-            tid = trow[0]
-            tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
-            tr.exons = []
-            for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
-                setattr(tr, pair[0], pair[1])
-            for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
-                tr.addExon(erow[0], erow[1])
-            return tr
-        else:
-            return None
-
-    def getAllTranscripts(self):
-        tcur = self.conn.cursor()
-        ecur = self.conn.cursor()
-
-        for trow in tcur.execute("SELECT t.ID, t.name, accession, enst, t.chrom, t.strand, txstart, txend, cdsstart, cdsend, g.name FROM Transcripts t, Genes g WHERE t.parentID = g.ID ORDER BY t.chrom, txstart"):
-            if trow:
-                tid = trow[0]
-                tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
-                tr.gene = trow[10]
-                tr.exons = []
-                for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
-                    setattr(tr, pair[0], pair[1])
-                for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
-                    tr.addExon(erow[0], erow[1])
-                yield tr
-
-    def findGenes(self, query, args):
-        result = []
-        qcur = self.conn.cursor()
-        gcur = self.conn.cursor()
-        tcur = self.conn.cursor()
-        ecur = self.conn.cursor()
-        for geneIDrow in qcur.execute(query, args):
-            geneID = geneIDrow[0]
-            row = gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=?", (geneID,)).fetchone()
+        """Returns the gene called `name'. The name is matched against the ID, name, geneid, and ensg fields."""
+        conn = sql.connect(self.dbname)
+        try:
+            row = conn.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=? OR name=? OR geneid=? OR ensg=?", 
+                               (name, name, name, name)).fetchone()
             if row:
                 gid = row[0]
                 g = Gene(gid, row[5], row[6])
                 for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
                     setattr(g, pair[0], pair[1])
-                for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                for trow in conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
                     tid = trow[0]
                     tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                     tr.exons = []
                     for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                         setattr(tr, pair[0], pair[1])
-                    for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                    for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                         tr.addExon(erow[0], erow[1])
                     g.addTranscript(tr)
-                result.append(g)
-        return result
+                return g
+            else:
+                return None
+        finally:
+            conn.close()
+
+    def allTranscriptNames(self):
+        names = []
+        conn = sql.coonnect(self.dbname)
+        try:
+            curr = conn.execute("SELECT ID FROM Transcripts ORDER BY ID")
+            names = [ r[0] for r in curr.fetchall() ]
+        finally: 
+            conn.close()
+        return names
+
+    def findTranscript(self, name, chrom=None):
+        """Returns the transcript called `name'. The name is matched against the ID, name, accession, and enst fields."""
+        conn = sql.connect(self.dbname)
+        try:
+            trow = conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE ID=? OR name=? OR accession=? OR enst=?",
+                                (name, name, name, name)).fetchone()
+            if trow:
+                tid = trow[0]
+                tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                tr.exons = []
+                for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                    setattr(tr, pair[0], pair[1])
+                for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                    tr.addExon(erow[0], erow[1])
+                return tr
+            else:
+                return None
+        finally:
+            conn.close()
+
+    def getAllTranscripts(self):
+        """Returns an iterator that lopps over all transcripts."""
+        conn = sql.connect(self.dbname)
+        try:
+            tcur = conn.cursor()
+            ecur = conn.cursor()
+
+            for trow in tcur.execute("SELECT t.ID, t.name, accession, enst, t.chrom, t.strand, txstart, txend, cdsstart, cdsend, g.name FROM Transcripts t, Genes g WHERE t.parentID = g.ID ORDER BY t.chrom, txstart"):
+                if trow:
+                    tid = trow[0]
+                    tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                    tr.gene = trow[10]
+                    tr.exons = []
+                    for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                        setattr(tr, pair[0], pair[1])
+                    for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                        tr.addExon(erow[0], erow[1])
+                    yield tr
+        finally:
+            conn.close()
+
+    def findGenes(self, query, args=[]):
+        """Returns the list of all genes that satisfy the `query'. `query' should be a SQL statement that returns
+a single column of values from the ID field."""
+        result = []
+        conn = sql.connect(self.dbname)
+        try:
+            gcur = conn.cursor()
+            for geneIDrow in conn.execute(query, args):
+                geneID = geneIDrow[0]
+                row = gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=?", (geneID,)).fetchone()
+                if row:
+                    g = Gene(geneID, row[5], row[6])
+                    for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                        setattr(g, pair[0], pair[1])
+                    for trow in conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (geneID,)):
+                        tid = trow[0]
+                        tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                        tr.exons = []
+                        for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                            setattr(tr, pair[0], pair[1])
+                        for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                            tr.addExon(erow[0], erow[1])
+                        g.addTranscript(tr)
+                    result.append(g)
+            return result
+        finally:
+            conn.close()
 
     def allIntersecting(self, chrom, start, end):
         """Returns all genes in `chrom' that intersect the `start-end' region."""
         return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
                               (chrom, start, end, start, end, start, end))
+
+    def findClosestGene(self, chrom, start, end):
+        """Find the closest gene to the region chrom:start-end, in either direction. Returns a tuple: (gene, distance).
+distance can be positive (downstream of `end') or negative (upstream of `start')."""
+        g1 = None
+        g2 = None
+        p1 = 0
+        p2 = 0
+        d1 = 0
+        d2 = 0
+
+        conn = sql.connect(self.dbname)
+        try:
+            query0 = "SELECT ID, start, end FROM Genes WHERE chrom='{}' AND start < {} AND end > {} ORDER BY start DESC LIMIT 1;".format(chrom, start, end) # containing
+            query1 = "SELECT ID, end   FROM Genes WHERE chrom='{}' AND end < {} ORDER BY end DESC LIMIT 1;".format(chrom, start) # upstream
+            query2 = "SELECT ID, start FROM Genes WHERE chrom='{}' AND start > {} ORDER BY start LIMIT 1;".format(chrom, end) # downstream
+            r0 = conn.execute(query0).fetchone()
+            if r0:
+                g0 = r0[0]
+                p0 = r0[1]
+                q0 = r0[2]
+                d1 = start - p0
+                d2 = q0 - end
+                return (g0, min(d1, d2))
+
+            r1 = conn.execute(query1).fetchone()
+            if r1:
+                g1 = r1[0]
+                p1 = r1[1]
+                d1 = start - p1
+            r2 = conn.execute(query2).fetchone()
+            if r2:
+                g2 = r2[0]
+                p2 = r2[1]
+                d2 = p2 - end
+
+            if p1 == 0 and p2 == 0: # No results?? This should not happen...
+                return (None, 0)
+            elif p1 == 0:           # No upstream, we only have downstream
+                return (g2, p2 - end)
+            elif p2 == 0:           # No downstream, we only have upstream
+                return (g1, p1 - start)
+            else:
+                d1 = start - p1
+                d2 = p2 - end
+                #print (d1, d2)
+                if d1 < d2:         # We have both, but upstream is closer
+                    return (g1, -d1)
+                else:
+                    return (g2, d2)
+        finally:
+            conn.close()
 
 # Transcript class
 
@@ -879,7 +946,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                 elif btype == 'transcript':
                     txid = ann['transcript_id']
                     if self.currTranscript:
-                        self.currTranscript.setCDS(self.cdsstart, self.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+                        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
                     self.currTranscript = Transcript(txid, chrom, strand, int(line[3]), int(line[4])) # clone gene into transcript
                     #self.currTranscript.name    = self.currGene.name
                     self.currTranscript.geneid  = self.currGene.geneid
@@ -898,7 +965,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     start = int(line[3])
                     end   = int(line[4])
                     self.currTranscript.addExon(start, end)
-        self.currTranscript.setCDS(self.cdsstart, self.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
 
 class GFFloader(GeneLoader):
 
@@ -997,30 +1064,36 @@ class DBloader(GeneLoader):
 
     def _load(self, preload=True, wanted=[], notwanted=[]):
         self.gl = GenelistDB()
+        self.gl.dbname = self.filename
         self.gl.preloaded = preload
         self.conn = sql.connect(self.filename)
-        self.gl.conn = self.conn
-        if preload:
-            gcur = self.conn.cursor()
-            tcur = self.conn.cursor()
-            ecur = self.conn.cursor()
-            for row in gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes"):
-                gid = row[0]
-                g = Gene(gid, row[5], row[6])
-                for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
-                    setattr(g, pair[0], pair[1])
-                self.gl.add(g, g.chrom)
-                for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
-                    tid = trow[0]
-                    tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
-                    for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
-                        setattr(tr, pair[0], pair[1])
-                    for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
-                        tr.addExon(erow[0], erow[1])
-                    g.addTranscript(tr)
-        else:
-            row = self.conn.execute("SELECT count(*) FROM Genes").fetchone()
-            self.gl.ngenes = row[0]
+        try:
+            if preload:
+                gcur = self.conn.cursor()
+                tcur = self.conn.cursor()
+                ecur = self.conn.cursor()
+                for row in gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes"):
+                    gid = row[0]
+                    g = Gene(gid, row[5], row[6])
+                    for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                        setattr(g, pair[0], pair[1])
+                    self.gl.add(g, g.chrom)
+                    for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                        tid = trow[0]
+                        tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
+                        for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
+                            setattr(tr, pair[0], pair[1])
+                        for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                            tr.addExon(erow[0], erow[1])
+                        g.addTranscript(tr)
+            else:
+                try:
+                    row = self.conn.execute("SELECT ngenes FROM Counts").fetchone()
+                except:
+                    row = self.conn.execute("SELECT count(*) FROM Genes").fetchone() # Fallback method for databases that don't have the Counts table yet...
+        finally:
+            self.conn.close()
+        self.gl.ngenes = row[0]
 
 ### Database stuff
 
@@ -1042,6 +1115,7 @@ def initializeDB(filename):
             conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Source;")
         conn.execute("CREATE TABLE Source (filename VARCHAR, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);")
+        conn.execute("CREATE TABLE Counts (ngenes INT DEFAULT 0, ntranscripts INT DEFAULT 0, nexons INT DEFAULT 0);")
     finally:
         conn.close()
 

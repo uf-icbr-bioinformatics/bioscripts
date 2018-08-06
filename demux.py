@@ -582,10 +582,32 @@ def doDistribute2():
                 s.close()
             for s in outstreams2:
                 s.close()
-    else:
-        for i in range(i, P.distr + 1):
-            sys.stderr.write("  {}\n".format(outfiles1[i]))
+    else:                       # single fastq file
+        for i in range(1, P.distr + 1):
             outfiles1.append("{}.{}.fastq.gz".format(P.distrout, i))
+        try:
+            for i in range(P.distr):
+                sys.stderr.write("  {}\n".format(outfiles1[i]))
+                outstreams1.append(Utils.genOpen(outfiles1[i], "w"))
+
+            in1 = Utils.genOpen(P.fqleft, "r")
+            i = 0
+            while True:
+                r = in1.readline()
+                if not r:
+                    break
+                o1 = outstreams1[i]
+                o1.write(r)
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                o1.write(in1.readline())
+                i += 1
+                if i == P.distr:
+                    i = 0
+        finally:
+            in1.close()
+            for s in outstreams1:
+                s.close()
 
 def doDistributeFasta():
     outfiles = []
@@ -674,7 +696,7 @@ def main(args):
         elif fmt == "fasta":
             doDistributeFasta()
         else:
-            sys.stderr.write("File {} is in an unknown format.\n".format(P.fleft))
+            sys.stderr.write("File {} is in an unknown format.\n".format(P.fqleft))
         
 if __name__ == "__main__":
     args = sys.argv[1:]
