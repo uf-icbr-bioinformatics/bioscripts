@@ -24,14 +24,15 @@ Compute read length from one or more BAM files. By default, the program will
 examine one read every 10, until 1000 reads are reached in each file. Options:
 
   -h   | Print usage message.
-  -n N | Number of reads to test in each BAM file (default: {}). Set this and
+  -n N | Number of reads to test in each BAM file (default: 1000). Set this and
          -s to 0 to check all reads.
-  -s S | Number of reads to skip between tested reads (default: {}).
+  -s S | Number of reads to skip between tested reads (default: 10).
   -m M | Use mode M, one of 'avg' (show average read length, rounded up), 
          'min' or 'max' (shortest or longest read respectively) or 'all'
          (all three values on separate lines).
 
 """)
+        sys.exit(1)
 
     def parseArgs(self, args):
         if "-h" in args:
