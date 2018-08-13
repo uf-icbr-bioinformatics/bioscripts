@@ -24,6 +24,9 @@ zs-   <bamfile> <botfile>           | Write reads from bottom converted strand t
 Reads in <topfile> will only show C->T conversion, while reads in <botfile> will only show G->A
 conversion.
 
+If the output file is `-' or `/dev/stdout', output will be written to standard output
+(useful for piping).
+
 """)
 
 P = Script.Script("bisconv.py", version="1.0", usage=usage)
@@ -54,6 +57,8 @@ def split(inbam, bamfile1, bamfile2):
     return (nin, nplus, nminus)
 
 def extract(inbam, outbam, flag):
+    if outbam == "-":
+        outbam = "/dev/stdout"
     nin = 0
     nout = 0
     inb = pysam.AlignmentFile(inbam, "rb")

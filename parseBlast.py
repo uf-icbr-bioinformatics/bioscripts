@@ -47,6 +47,7 @@ class ParseBlast(Script.Script):
     limits = None
     infiles = []
     outfile = None
+    reportfile = None
 
     def parseArgs(self, args):
         if not args or "-h" in args or "--help" in args:
@@ -73,31 +74,54 @@ class ParseBlast(Script.Script):
             elif prev == "-o":
                 self.outfile = a
                 prev = ""
-            elif a in ["-i", "-l", "-m", "-e", "-b", "-o"]:
+            elif prev == "-r":
+                self.reportfile = a
+                prev = ""
+            elif a in ["-i", "-l", "-m", "-e", "-b", "-o", "-r"]:
                 prev = a
             else:
                 self.infiles.append(self.isFile(a))
 
     def parseOne(self, f, out):
+        nin = 0
+        nout = 0
         for line in f:
             if line[0] == '#':
                 continue
+            nin += 1
             parsed = line.rstrip("\r\n").split("\t")
             if self.limits.checkRecord(parsed):
                 out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(parsed[1], parsed[8], parsed[9], parsed[2], parsed[3], parsed[10], parsed[11], parsed[0]))
+                nout += 1
+        return (nin, nout)
 
     def run(self):
+        totin = 0
+        totout = 0
         if self.outfile:
             out = open(self.outfile, "w")
         else:
             out = sys.stdout
+        if self.reportfile:
+            rep = open(self.reportfile, "w")
+            rep.write("File\tHits in\tHits out\tHits %\n")
+        else:
+            rep = None
         try:
             if self.infiles:
                 for filename in self.infiles:
                     with open(filename, "r") as f:
-                        self.parseOne(f, out)
+                        (nin, nout) = self.parseOne(f, out)
+                        totin += nin
+                        totout += nout
+                        if rep:
+                            rep.write("{}\t{}\t{}\t{:.2f}%\n".format(filename, nin, nout, 100.0*nout / nin))
+                if rep:
+                    rep.write("Total\t{}\t{}\t{:.2f}%\n".format(totin, totout, 100.0 * totout / totin))
             else:
-                self.parseOne(sys.stdin, out)
+                (nin, nout) = self.parseOne(sys.stdin, out)
+                if rep:
+                    rep.write("(stdin)\t{}\t{}\t{:.2f}%\n".format(nin, nout, 100.0 * nout / nin))
         finally:
             if self.outfile:
                 out.close()

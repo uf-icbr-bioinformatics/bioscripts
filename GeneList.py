@@ -286,6 +286,33 @@ class Genelist():
 class GenelistDB(Genelist):
     dbname = None
     preloaded = False           # Did we preload all genes into the Genelist?
+    genesTable = {}
+    transcriptsTable = {}
+
+    def getGenesTable(self):
+        if not self.genesTable:
+            conn = sql.connect(self.dbname)
+            try:
+                for row in conn.execute("SELECT ID, biotype, name FROM genes;"):
+                    self.genesTable[row[0]] = {'gene_id': row[0],
+                                               'gene_biotype': row[1] or "???",
+                                               'gene_name': row[2]}
+            finally:
+                conn.close()
+        return self.genesTable
+
+    def getTranscriptsTable(self):
+        if not self.transcriptsTable:
+            conn = sql.connect(self.dbname)
+            try:
+                for row in conn.execute("SELECT transcripts.ID, genes.biotype, transcripts.name, genes.name FROM transcripts, genes WHERE genes.ID=transcripts.parentID;"):
+                    self.transcriptsTable[row[0]] = {'transcript_id': row[0],
+                                                     'gene_biotype': row[1] or "???",
+                                                     'transcript_name': row[2],
+                                                     'gene_name': row[3]}
+            finally:
+                conn.close()
+        return self.transcriptsTable
 
     def allGeneNames(self):
         names = []

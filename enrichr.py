@@ -108,6 +108,7 @@ class Enrichr(Script.Script):
     def getEnrichment(self, userListId, library):
         query_string = 'enrich?userListId={}&backgroundType={}'
         response = requests.get(self.ENRICHR_URL + query_string.format(userListId, library))
+        print response.text
         if not response.ok:
             self.errmsg(self.BADCOMM)
 
