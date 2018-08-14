@@ -106,17 +106,24 @@ and the following one (if any). Otherwise, returns None."""
             sys.stderr.write("Unknown error code {}\n".format(code))
             sys.exit(0)
 
-    def toInt(self, x):
+    def toInt(self, x, units=False):
+        mult = 1
+        if units:
+            (x, mult) = Utils.decodeUnits(x)
         try:
-            return int(x)
+            return int(x) * mult
         except ValueError:
             self.errmsg(self.BADINT, x)
 
     def toFloat(self, x):
-        try:
-            return float(x)
-        except ValueError:
-            self.errmsg(self.BADFLOAT, x)
+        v = Utils.parseFraction(x)
+        if v is None:
+            try:
+                return float(x)
+            except ValueError:
+                self.errmsg(self.BADFLOAT, x)
+        else:
+            return v
         
     def isFile(self, x):
         if x == "-":
