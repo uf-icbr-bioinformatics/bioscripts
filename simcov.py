@@ -80,6 +80,25 @@ class Simcov(Script):
             for p in range(start, end):
                 self.vector[p] += 1
 
+    def simulateUnpaired(self, nreads):
+        low = 1 - self.insertSize
+        high = self.vectorSize
+        for i in range(nreads):
+            pos = np.random.randint(low, high) # position of insert
+
+            # left read
+            start = max(pos - self.readlen, 0)
+            end   = max(pos, 0)
+            for p in range(start, end):
+                self.vector[p] += 1
+
+            # right read
+            start = min(pos + self.insertSize, self.vectorSize)
+            end   = min(start + self.readlen, self.vectorSize)
+            for p in range(start, end):
+                self.vector[p] += 1
+            
+
     def report(self, CS):
         sys.stdout.write("=== Configuration ===\n")
         sys.stdout.write("Genome size: {:,}bp\n".format(self.genomeSize))
