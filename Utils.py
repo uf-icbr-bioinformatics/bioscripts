@@ -61,6 +61,30 @@ def safeFloat(v, default=None):
     except ValueError:
         return default
 
+def parseFraction(f):
+    """Parse a fraction returning a float.
+Returns None if f is not in the form N/D, or if D is 0."""
+    p = f.find("/")
+    s1 = f[:p]
+    s2 = f[p+1:]
+    try:
+        v1 = int(s1)
+        v2 = int(s2)
+    except ValueError:
+        return None
+    if v2:
+        return 1.0 * v1 / v2
+    else:
+        return None
+
+def decodeUnits(x):
+    if x.endswith("G"):
+        return (x[:-1], 1000000000)
+    if x.endswith("M") or x.endswith("m"):
+        return (x[:-1], 1000000)
+    else:
+        return (x, 1)
+    
 def convertValue(v):
     """Convert v to an int if possible, otherwise to
 a float, otherwise return it unchanged."""
