@@ -655,14 +655,14 @@ non-coding exon), 'i' (in an intron)."""
                 return (self.txstart, self.txend)
             elif params.regwanted == 'u':
                 if self.strand == 1:
-                    return (self.txstart - params.updistance, self.txstart + params.dndistance)
+                    return (max(0, self.txstart - params.updistance), self.txstart + params.dndistance)
                 else:
-                    return (self.txend - params.dndistance, self.txend + params.updistance)
+                    return (max(0, self.txend - params.dndistance), self.txend + params.updistance)
             elif params.regwanted == 'd':
                 if self.strand == 1:
-                    return (self.txend - params.updistance, self.txend + params.dndistance)
+                    return (max(0, self.txend - params.updistance), self.txend + params.dndistance)
                 else:
-                    return (self.txstart - params.dndistance, self.txstart + params.updistance)
+                    return (max(0, self.txstart - params.dndistance), self.txstart + params.updistance)
         else:
             return None
 
@@ -775,24 +775,24 @@ class Gene():
                 return (self.start, self.end)
             elif params.regwanted == 'B':
                 if self.strand == 1:
-                    return (self.start - params.updistance, self.end + params.dndistance)
+                    return (max(0, self.start - params.updistance), self.end + params.dndistance)
                 else:
-                    return (self.start - params.dndistance, self.end + params.updistance)
+                    return (max(0, self.start - params.dndistance), self.end + params.updistance)
             elif params.regwanted == 'p':
                 if self.strand == 1:
-                    return (self.start - params.updistance, self.start)
+                    return (max(0, self.start - params.updistance), self.start)
                 else:
                     return (self.end, self.end + params.dndistance)
             elif params.regwanted == 'u':
                 if self.strand == 1:
-                    return (self.start - params.updistance, self.start + params.dndistance)
+                    return (max(0, self.start - params.updistance), self.start + params.dndistance)
                 else:
-                    return (self.end - params.dndistance, self.end + params.updistance)
+                    return (max(0, self.end - params.dndistance), self.end + params.updistance)
             elif params.regwanted == 'd':
                 if self.strand == 1:
-                    return (self.end - params.updistance, self.end + params.dndistance)
+                    return (max(0, self.end - params.updistance), self.end + params.dndistance)
                 else:
-                    return (self.start - params.dndistance, self.start + params.updistance)
+                    return (max(0, self.start - params.dndistance), self.start + params.updistance)
         else:
             return None
     
