@@ -65,6 +65,8 @@ class BAMreader(object):
     def addCountsToBED(self, bedfile, out):
         self.countAlignments()
         rpkm_factor = 1000000000.0 / self.nalignments
+        sys.stderr.write("BAM file contains {} aligned reads/read pairs\n".format(self.nalignments))
+        sys.stderr.write("RPFM factor = {}\n".format(rpkm_factor))
         with open(bedfile, "r") as f:
             for parsed in Utils.CSVreader(f):
                 start = int(parsed[1])
