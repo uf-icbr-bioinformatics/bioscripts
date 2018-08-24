@@ -153,21 +153,21 @@ class Prog(Script.Script):
         self.standardOpts(args)
         for a in args:
             if next == '-db':
-                self.source = P.isFile(a)
+                self.source = self.isFile(a)
                 self.sourcetype = 'DB'
                 next = ""
             elif next == '-o':
                 self.outfile = a
                 next = ""
             elif next == '-d':
-                self.updistance = P.toInt(a)
+                self.updistance = self.toInt(a)
                 self.dndistance = self.updistance
                 next = ""
             elif next == '-dup':
-                self.updistance = P.toInt(a)
+                self.updistance = self.toInt(a)
                 next = ""
             elif next == '-ddn':
-                self.dndistance = P.toInt(a)
+                self.dndistance = self.toInt(a)
                 next = ""
             elif next == '-f':
                 self.oformat = a
@@ -176,14 +176,14 @@ class Prog(Script.Script):
                 self.excel = a
                 next = ""
             elif next == '-b':
-                self.ovbases = P.toInt(a)
+                self.ovbases = self.toInt(a)
                 next = ""
             elif next == '-r':
                 if a in ['b', 'u', 'd']:
                     self.regwanted = a
                     next = ""
                 else:
-                    P.errmsg('BADREGION')
+                    self.errmsg('BADREGION')
             elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o"]:
                 next = a
             elif a == '-t':
@@ -203,7 +203,7 @@ class Prog(Script.Script):
             else:
                 cmd = a
         if cmd not in ['region', 'transcripts', 'classify', 'split', 'makedb', 'overlap', 'closest']:
-            P.errmsg(P.NOCMD)
+            P.errmsg(self.NOCMD)
         return cmd
 
 P = Prog("genes.py", version="1.0", usage=usage, 
