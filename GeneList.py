@@ -352,7 +352,7 @@ class GenelistDB(Genelist):
 
     def allTranscriptNames(self):
         names = []
-        conn = sql.coonnect(self.dbname)
+        conn = sql.connect(self.dbname)
         try:
             curr = conn.execute("SELECT ID FROM Transcripts ORDER BY ID")
             names = [ r[0] for r in curr.fetchall() ]

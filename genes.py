@@ -7,47 +7,151 @@ import Utils
 import Script
 import GeneList
 
-def usage(what=None):
-    if what == None:
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+# Utils
 
-Usage: genes.py [options] command command-arguments...
+def loadGenes(filename):
+    loaderClass = GeneList.getLoader(filename)
+    if not loaderClass:
+        P.errmsg(P.BADSRC)
+    loader = loaderClass(filename)
+    sys.stderr.write("Loading genes database from {}... ".format(filename))
+    gl = loader.load(preload=False)
+    sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
+    return gl
 
-where `command' can be one of: makedb, classify, region, transcripts, overlap, closest.
+def parseRegion(c):
+    """Parse a region specification of the form chr:start-end and return a
+tuple containing the three elements. If -end is omitted, the third element
+will be equal to the second one."""
+    dc = c.find(":")
+    if dc > 0:
+        chrom = c[:dc]
+        dd = c.find("-")
+        if dd > 0:
+            return (chrom, int(c[dc+1:dd]), int(c[dd+1:]))
+        else:
+            pos = int(c[dc+1:])
+            return (chrom, pos, pos)
+    else:
+        return None
 
-Common options:
+def readRegions(atfile):
+    """Read regions from a file indicated as @filename:col. Lines that don't have
+the required number of columns or that contains start and end positions that are
+not numbers are silently ignored."""
+    regs = []
+    afr = Utils.AtFileReader(atfile)
+    while True:
+        line = afr.stream.readline()
+        if not line:
+            afr.stream.close()
+            return regs
+        if line[0] != afr.ignorechar:
+            line = line.rstrip("\r\n").split("\t")
+            try:
+                regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
+            except ValueError:
+                pass
+            except IndexError:
+                pass
 
-  -o  O | Write output to file O (default: stdout)
-  -db D | Load gene database from database file D. D can be in one of the following formats:
-          - gtf (extensions .gtf, .GTF)
-          - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
-          - genbank (extension .gb)
-          - UCSC refFlat (extension .csv)
-          - sqlite3 (extension .db)
+def findOverlapping(start, end, regions, minover):
+    """Return all itntervals from the list `regions' that overlap the interval `start'-`end'
+by at least `minover'."""
+    
+    result = []
+    for reg in regions:
+        if reg[0] > end:
+            break
+        if (start <= reg[0] <= end) or (start <= reg[1] <= end) or (reg[0] <= start <= end <= reg[1]):
+            overlap = min(end, reg[1]) - max(start, reg[0])
+            if overlap >= minover:
+                result.append((overlap, reg))
+    return result
 
-Use genes.py -h <command> to get help on <command> and its specific options.
+### Command classes
+
+class Command():
+    cmd = ""
+
+class MakeDB(Command):
+    cmd = "makedb"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py makedb [options] dbfile
+
+Convert a gene database in gtf/gff/genbank/refFlat format to sqlite3 format. 
+The -db option specifies the input database, the -o option specifies the output 
+database. Both are required.
 
 """)
 
-    elif what == 'makedb':
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+    def run(self, P):
+        if len(P.args) == 0:
+            P.errmsg(P.NOOUTDB)
+        dbfile = P.args[0]
+        sys.stderr.write("Saving gene database to {}...\n".format(dbfile))
+        GeneList.initializeDB(dbfile)
+        ng = P.gl.saveAllToDB(dbfile)
+        sys.stderr.write("done, {} genes written.\n".format(ng))
 
-Usage: genes.py makedb [options] dbfile
+class Classify(Command):
+    cmd = "classify"
+    regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o') ]
+    totals = {}
+    streams = {}
+    
+    def __init__(self):
+        self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0}
+        self.streams = {'u': None, 'd': None, 'E': None, 'e': None, 'i': None, 'o': None, 's': None}
 
-Convert a gene database in gtf/gff/genbank/refFlat format to sqlite3 format.
+    def add(self, key):
+        self.totals['n'] += 1
+        self.totals[key] += 1
 
-Options
+    def report(self, stream):
+        if stream == 's':
+            stream = self.streams['s']
+        stream.write("Class\tNumber\tPercentage\n")
+        tot = self.totals['n']
+        for regs in self.regnames:
+            stream.write("{}\t{}\t{:.2f}%\n".format(regs[0], self.totals[regs[1]], 100.0 * self.totals[regs[1]] / tot))
+        stream.write("Total\t{}\t\n".format(tot))
 
-  -db D | Load genes from file D.
+    def initStreams(self, filename, header=None, stream=None):
+        base = os.path.splitext(filename)[0]
+        filename = base + "-Summary.csv"
+        if stream:
+            if P.excel:
+                stream.write("{} -firstrowhdr -name {}-Summary \n".format(filename, P.excel))
+            else:
+                stream.write(filename + "\n")
+        self.streams['s'] = open(filename, "w")
+        for rn in self.regnames:
+            filename = base + "-" + rn[0] + ".csv"
+            if stream:
+                if P.excel:
+                    stream.write("{} -firstrowhdr -name {}-{} \n".format(filename, P.excel, rn[0]))
+                else:
+                    stream.write(filename + "\n")
+            self.streams[rn[1]] = out = open(filename, "w")
+            if header:
+                out.write(header + "\n")
 
-""")
+    def closeStreams(self):
+        for rn in self.regnames:
+            self.streams[rn[1]].close()
 
-    elif what == 'classify':
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+    def writeLine(self, key, line):
+        self.add(key)
+        stream = self.streams[key]
+        if stream:
+            stream.write("\t".join(line) + "\n")
 
-Usage: genes.py classify [options] chrom:position ... 
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py classify [options] chrom:position ... 
 
-Classify the specified chromosome positions according to the transcripts they fall in. If
+Classify the specified chromosome position(s) according to the transcripts they fall in. If
 an argument has the form @filename:col, read regions from column `col' of file `filename'
 (col defaults to 1).
 
@@ -60,12 +164,82 @@ Options:
   -t     | List individual transcripts.
   -s     | Summary classification only (number and percentage of region classes).
 
-""".format(Prog.updistance, Prog.updistance, Prog.dndistance))
+""".format(P.updistance, P.updistance, P.dndistance))
 
-    elif what == 'region':
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+    
+    def run(self, P):
+        maxd = max(P.updistance, P.dndistance)
 
-Usage: genes.py region [options] spec ... 
+        regions = []
+        for a in P.args:
+            if a[0] == '@':
+                regs = readRegions(a)
+                for r in regs:
+                    regions.append(r)
+            else:
+                regions.append(a)
+
+        sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
+
+        if P.outfile:
+            out = open(P.outfile, "w")
+        else:
+            out = sys.stdout
+
+        try:
+            if P.mode == "t":
+                out.write("Gene\tID\tAccession\tClass\n")
+            elif P.mode == "g":
+                out.write("Gene\tID\tClass\n")
+
+            for reg in regions:
+                if type(reg).__name__ == 'str':
+                    reg = parseRegion(reg)
+                start = reg[1]
+                end   = reg[2]
+                pos   = (start + end) / 2
+                genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
+                if P.mode == "t":
+                    for g in genes:
+                        for tr in g.transcripts:
+                            c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c))
+                elif P.mode == "g":
+                    for g in genes:
+                        name = g.name
+                        c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                        out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c))
+                elif P.mode == "s":
+                    if len(genes) == 0:
+                        self.add('o')
+                    else:
+                        for g in genes:
+                            c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                            for x in c:
+                                self.add(x)
+                elif P.mode == "st":
+                    if len(genes) == 0:
+                        self.add('o')
+                    else:
+                        for g in genes:
+                            for tr in g.transcripts:
+                                c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                                if c:
+                                    for x in c:
+                                        self.add(x)
+                                else:
+                                    self.add('o')
+
+            if "s" in P.mode:
+                self.report(out)
+        finally:
+            out.close()
+
+class Region(Command):
+    cmd = "region"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py region [options] spec ... 
 
 Display the genomic region for the genes (or transcripts, if -t is specified) identified by 
 `spec'. If `spec' is the string `all', outputs all genes or transcripts in the database. If a
@@ -85,12 +259,85 @@ Options:
   -ddn N | Downstream distance from gene (default: {}).
   -t     | Show transcripts instead of genes.
 
-""".format(Prog.regwanted, Prog.oformat, Prog.updistance, Prog.updistance, Prog.dndistance))
+""".format(P.regwanted, P.oformat, P.updistance, P.updistance, P.dndistance))
 
-    elif what == 'overlap':
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
+    def run(self, P):
+        if len(P.args) == 0:
+            P.errmsg(P.BADSRC)
 
-Usage: genes.py overlap [options] bedfile spec...
+        if P.args[0][0] == '@':
+            source = Utils.AtFileReader(P.args[0])
+        elif P.args[0] == "all":
+            if P.mode == "t":
+                source = P.gl.allTranscriptNames()
+            else:
+                source = P.gl.allGeneNames()
+        else:
+            source = P.args
+
+        for name in source:
+            if P.mode == "t":
+                tx = P.gl.findTranscript(name)
+                if tx:
+                    reg = tx.getRegion(P)
+                    if not reg:
+                        continue
+                    (start, end) = reg
+                    if P.oformat == "c":
+                        sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, tx.chrom, start, end, "+" if tx.strand == 1 else "-"))
+                    elif P.oformat == "t":
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(tx.chrom, start, end, "+" if tx.strand == 1 else "-", name))
+                else:
+                    sys.stderr.write("No transcript `{}'.\n".format(name))
+            else:
+                gene = P.gl.findGene(name)
+                if gene:
+                    reg = gene.getRegion(P)
+                    if not reg:
+                        continue
+                    (start, end) = reg
+                    if P.oformat == "c":
+                        sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
+                    elif P.oformat == "t":
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
+                else:
+                    sys.stderr.write("No gene `{}'.\n".format(name))
+
+class Transcripts(Command):
+    cmd = "transcripts"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py transcripts spec ... 
+
+Display the transcripts for the gene identified by the supplied `spec's. If `spec' is the string 
+`all', outputs all transcripts in the database. If a spec has the form @filename, gene ids are 
+read from the first column file `filename', one per line (a different column can be specified 
+using @filename:col). and transcripts for those genes are printed. Otherwise, each `spec' is
+treated as a gene identifier, and its transcripts are printed.
+
+""")
+        
+    def run(self, P):
+        if len(P.args) == 0:
+            P.errmsg(P.NOSPECS)
+        sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
+        if P.args[0] == "all":
+            for tx in P.gl.getAllTranscripts():
+                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(tx.gene, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
+        else:
+            for name in P.args:
+                gene = P.gl.findGene(name)
+                if gene:
+                    for tx in gene.transcripts:
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(name, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
+                else:
+                    sys.stderr.write("No gene `{}'.\n".format(name))
+
+class Overlap(Command):
+    cmd = "overlap"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py overlap [options] bedfile spec...
 
 This command reads regions from BED file `bedfile', and writes to standard output those that 
 overlap a region associated with one or more of the genes (or transcripts if -t is specified)
@@ -114,21 +361,218 @@ Options:
   -t     | Show transcripts instead of genes.
   -b B   | Minimum number of bases in minimum overlap (default: {}).
 
-""".format(Prog.regwanted, Prog.updistance, Prog.updistance, Prog.dndistance, Prog.ovbases))
+""".format(P.regwanted, P.updistance, P.updistance, P.dndistance, P.ovbases))
 
-    elif what == 'transcripts':
+
+
+    def run(self, P):
+        if len(P.args) < 2:
+            P.errmsg()
+        bedfile = P.args[0]
+        if P.args[1] == "all":
+            if P.mode == "t":
+                source = P.gl.allTranscriptNames()
+            else:
+                source = P.gl.allGeneNames()
+        else:
+            source = P.args[1:]
+
+        regions = {}
+        sys.stderr.write("Computing regions... ")
+        for name in source:
+            if P.mode == "t":
+                tx = P.gl.findTranscript(name)
+            else:
+                tx = P.gl.findGene(name)
+            if tx:
+                reg = tx.getRegion(P)
+                if not reg:
+                    continue
+                (start, end) = reg
+                chrom = tx.chrom
+                if chrom not in regions:
+                    regions[chrom] = []
+                regions[chrom].append((start, end, name, tx.strand))
+        for chrom in regions.keys():
+            regions[chrom].sort()
+        sys.stderr.write("done.\n")
+
+        with open(bedfile, "r") as f:
+            reader = Utils.CSVreader(f)
+            for line in reader:
+                chrom = line[0]
+                start = Utils.safeInt(line[1])
+                end   = Utils.safeInt(line[2])
+                if start is None or end is None:
+                    continue
+                if chrom not in regions:
+                    continue
+                txregions = regions[chrom]
+                overs = findOverlapping(start, end, txregions, P.ovbases)
+                if overs:
+                    overs.sort(key=lambda n: n[0])
+                    for ovr in overs:
+                        ov = ovr[1]
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
+                        if P.addBedFields:
+                            sys.stdout.write("\t" + "\t".join(line[1:]))
+                        sys.stdout.write("\n")
+
+class Split(Command):
+    cmd = "split"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py [options] split filename...
+
+Separate regions contained in the input files into multiple files depending on their
+classification. For each input file, six output files are created concatenating the
+filename with each of following labels:
+
+{}
+
+Each row of input file is interpreted as a region (chrom, start, end), classified as 
+per the `classify' command, and written to the appropriate output file.
+
+""".format(", ".join([w[0] for w in Classify.regnames])))
+    
+    def run(self, P):
+        C = Classify()
+        maxd = max(P.updistance, P.dndistance)
+        for a in P.args:
+            if a[0] != '@':
+                a = '@' + a
+            afr = Utils.AtFileReader(a)
+            header = afr.stream.readline().rstrip("\r\n")
+            C.initStreams(afr.filename, header=header, stream=sys.stdout)
+            while True:
+                line = afr.readline()
+                if line == '':
+                    afr.close()
+                    break
+                reg = (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2]))
+                pos = reg[1]
+                genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
+                if len(genes) == 0:
+                    C.writeLine('o', line)
+                else:
+                    for g in genes:
+                        c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                        for x in c:
+                            C.writeLine(x, line)
+            C.closeStreams()
+            C.report('s')
+
+class Closest(Command):
+    cmd = "closest"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py closest [options] spec...
+
+Find the closest gene to each one of the regions specified on the command line.
+Each `spec' can be a position (chrom:pos) or a region (chrom:start-end) or
+a file specification of the form @filename:col, in which case regions are
+read from filename, assuming that the chromosome is on column `col' (defaulting
+to 1) and start and end positions are in the two next columns.
+
+If a region was read from the command-line, output consists of the following 
+tab-separated fields:
+
+        chrom, start, end, distance from nearest gene, gene ID, name of gene
+
+If regions are read from a file, output consist of each line of the input
+file followed by distance from nearest gene, gene ID, name of gene.
+
+Output is written to standard ouptut, unless an output file is specified with -o.
+""")
+    
+    def run(self, P):
+        regions = []
+
+        if P.outfile:
+            out = open(P.outfile, "w")
+        else:
+            out = sys.stdout
+
+        nin = 0
+        nout = 0
+
+        for a in P.args:
+            if a[0] == '@':
+                (nin, nout) = self.runFile(a[1:], out)
+            else:
+                regions.append(parseRegion(a))
+
+        for reg in regions:
+            nin += 1
+            (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2])
+            if geneID:
+                nout += 1
+                gene = P.gl.findGene(geneID)
+                out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
+        sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
+
+    def runFile(self, infile, out):
+        nin = 0
+        nout = 0
+        try:
+            with open(infile, "r") as f:
+                c = csv.reader(f, delimiter='\t')
+                for line in c:
+                    nin += 1
+                    (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
+                    if geneID:
+                        nout += 1
+                        gene = P.gl.findGene(geneID)
+                        outrow = line + [str(dist), gene.ID, gene.name]
+                        out.write("\t".join(outrow) + "\n")
+            sys.stderr.write("Classified {}/[] regions.\n".format(nin, nout))
+
+        finally:
+            if P.outfile:
+                out.close()
+        return (nin, nout)
+
+### Catalog of commands
+
+COMMANDS = {'makedb': MakeDB,
+            'classify': Classify,
+            'region': Region,
+            'transcripts': Transcripts,
+            'overlap': Overlap,
+            'split': Split,
+            'closest': Closest}
+
+COMMAND_NAMES = sorted(COMMANDS.keys())
+
+### Main
+
+def usage(what=None):
+    global COMMANDS, COMMAND_NAMES
+    if what == None:
         sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
 
-Usage: genes.py transcripts spec ... 
+Usage: genes.py [common-options] [options] command command-arguments...
 
-Display the transcripts for the gene identified by the supplied `spec's. If `spec' is the string 
-`all', outputs all transcripts in the database. If a spec has the form @filename, gene ids are 
-read from the first column file `filename', one per line (a different column can be specified 
-using @filename:col). and transcripts for those genes are printed. Otherwise, each `spec' is
-treated as a gene identifier, and its transcripts are printed.
+where `command' can be one of: {}.
 
-""")
+Common options (applicable to all commands):
 
+  -o  O | Write output to file O (default: stdout)
+  -db D | Load gene database from database file D. D can be in one of the following formats:
+          - gtf (extensions .gtf, .GTF)
+          - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
+          - genbank (extension .gb)
+          - UCSC refFlat (extension .csv)
+          - sqlite3 (extension .db)
+
+Use genes.py -h <command> to get help on <command> and its specific options.
+
+""".format(", ".join(COMMAND_NAMES)))
+
+    elif what in COMMAND_NAMES:
+        c = COMMANDS[what]
+        c().usage(P)
+        
 ### Program object
 
 class Prog(Script.Script):
@@ -202,388 +646,30 @@ class Prog(Script.Script):
                 self.args.append(a)
             else:
                 cmd = a
-        if cmd not in ['region', 'transcripts', 'classify', 'split', 'makedb', 'overlap', 'closest']:
+        if cmd not in COMMAND_NAMES:
             P.errmsg(self.NOCMD)
+        if not self.source:
+            P.errmsg(self.BADSRC)
         return cmd
 
 P = Prog("genes.py", version="1.0", usage=usage, 
          errors=[('BADSRC', 'Missing gene database'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
-                 ('NOOUTDB', 'Missing database filename', "Please specify the name of the output database file."),
-                 ('NOCMD', 'Missing command', "Please specify a command (one of 'makedb', 'region', 'transcripts', 'classify', 'split').") ])
-
-# Utils
-
-def parseRegion(c):
-    """Parse a region specification of the form chr:start-end and return a
-tuple containing the three elements. If -end is omitted, the third element
-will be equal to the second one."""
-    dc = c.find(":")
-    if dc > 0:
-        chrom = c[:dc]
-        dd = c.find("-")
-        if dd > 0:
-            return (chrom, int(c[dc+1:dd]), int(c[dd+1:]))
-        else:
-            pos = int(c[dc+1:])
-            return (chrom, pos, pos)
-    else:
-        return None
-
-def readRegions(atfile):
-    """Read regions from a file indicated as @filename:col. Lines that don't have
-the required number of columns or that contains start and end positions that are
-not numbers are silently ignored."""
-    regs = []
-    afr = Utils.AtFileReader(atfile)
-    while True:
-        line = afr.stream.readline()
-        if not line:
-            afr.stream.close()
-            return regs
-        if line[0] != afr.ignorechar:
-            line = line.rstrip("\r\n").split("\t")
-            try:
-                regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
-            except ValueError:
-                pass
-            except IndexError:
-                pass
-
-### Classifier    
-
-class Classifier():
-    regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o') ]
-    totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0}
-    streams = {'u': None, 'd': None, 'E': None, 'e': None, 'i': None, 'o': None, 's': None}
-
-    def add(self, key):
-        self.totals['n'] += 1
-        self.totals[key] += 1
-
-    def report(self, stream):
-        if stream == 's':
-            stream = self.streams['s']
-        stream.write("Class\tNumber\tPercentage\n")
-        tot = self.totals['n']
-        for regs in self.regnames:
-            stream.write("{}\t{}\t{:.2f}%\n".format(regs[0], self.totals[regs[1]], 100.0 * self.totals[regs[1]] / tot))
-        stream.write("Total\t{}\t\n".format(tot))
-
-    def initStreams(self, filename, header=None, stream=None):
-        base = os.path.splitext(filename)[0]
-        filename = base + "-Summary.csv"
-        if stream:
-            if P.excel:
-                stream.write("{} -firstrowhdr -name {}-Summary \n".format(filename, P.excel))
-            else:
-                stream.write(filename + "\n")
-        self.streams['s'] = open(filename, "w")
-        for rn in self.regnames:
-            filename = base + "-" + rn[0] + ".csv"
-            if stream:
-                if P.excel:
-                    stream.write("{} -firstrowhdr -name {}-{} \n".format(filename, P.excel, rn[0]))
-                else:
-                    stream.write(filename + "\n")
-            self.streams[rn[1]] = out = open(filename, "w")
-            if header:
-                out.write(header + "\n")
-
-    def closeStreams(self):
-        for rn in self.regnames:
-            self.streams[rn[1]].close()
-
-    def writeLine(self, key, line):
-        self.add(key)
-        stream = self.streams[key]
-        if stream:
-            stream.write("\t".join(line) + "\n")
+                 ('NOOUTDB', 'Missing output database filename', "Please specify the name of the output database file."),
+                 ('NOCMD', 'Missing command', "Please specify a command (one of {}).".format(", ".join(COMMAND_NAMES))),
+                 ('NOSPECS', 'Missing specs', "Please provide at least one gene or region spec.") ])
 
 ### Main
-
-def loadGenes(filename):
-    loaderClass = GeneList.getLoader(filename)
-    if not loaderClass:
-        P.errmsg(P.BADSRC)
-    loader = loaderClass(filename)
-    sys.stderr.write("Loading genes database from {}... ".format(filename))
-    gl = loader.load(preload=False)
-    sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
-    return gl
-
-def doMakeDB():
-    if len(P.args) == 0:
-        P.errmsg(P.NOOUTDB)
-    dbfile = P.args[0]
-    sys.stderr.write("Saving gene database to {}...\n".format(dbfile))
-    GeneList.initializeDB(dbfile)
-    ng = P.gl.saveAllToDB(dbfile)
-    sys.stderr.write("done, {} genes written.\n".format(ng))
-
-def doRegion():
-    if len(P.args) == 0:
-        P.errmsg(P.BADSRC)
-
-    if P.args[0][0] == '@':
-        source = Utils.AtFileReader(P.args[0])
-    elif P.args[0] == "all":
-        if P.mode == "t":
-            source = P.gl.allTranscriptNames()
-        else:
-            source = P.gl.allGeneNames()
-    else:
-        source = P.args
-
-    for name in source:
-        if P.mode == "t":
-            tx = P.gl.findTranscript(name)
-            if tx:
-                reg = tx.getRegion(P)
-                if not reg:
-                    continue
-                (start, end) = reg
-                if P.oformat == "c":
-                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, tx.chrom, start, end, "+" if tx.strand == 1 else "-"))
-                elif P.oformat == "t":
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(tx.chrom, start, end, "+" if tx.strand == 1 else "-", name))
-            else:
-                sys.stderr.write("No transcript `{}'.\n".format(name))
-        else:
-            gene = P.gl.findGene(name)
-            if gene:
-                reg = gene.getRegion(P)
-                if not reg:
-                    continue
-                (start, end) = reg
-                if P.oformat == "c":
-                    sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
-                elif P.oformat == "t":
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
-            else:
-                sys.stderr.write("No gene `{}'.\n".format(name))
-
-def findOverlapping(start, end, regions, minover):
-    result = []
-    for reg in regions:
-        if reg[0] > end:
-            break
-        if (start <= reg[0] <= end) or (start <= reg[1] <= end) or (reg[0] <= start <= end <= reg[1]):
-            overlap = min(end, reg[1]) - max(start, reg[0])
-            if overlap >= minover:
-                result.append((overlap, reg))
-    return result
-
-def doOverlap():
-    if len(P.args) < 2:
-        P.errmsg()
-    bedfile = P.args[0]
-    if P.args[1] == "all":
-        if P.mode == "t":
-            source = P.gl.allTranscriptNames()
-        else:
-            source = P.gl.allGeneNames()
-    else:
-        source = P.args[1:]
-
-    regions = {}
-    sys.stderr.write("Computing regions... ")
-    for name in source:
-        if P.mode == "t":
-            tx = P.gl.findTranscript(name)
-        else:
-            tx = P.gl.findGene(name)
-        if tx:
-            reg = tx.getRegion(P)
-            if not reg:
-                continue
-            (start, end) = reg
-            chrom = tx.chrom
-            if chrom not in regions:
-                regions[chrom] = []
-            regions[chrom].append((start, end, name, tx.strand))
-    for chrom in regions.keys():
-        regions[chrom].sort()
-    sys.stderr.write("done.\n")
-
-    with open(bedfile, "r") as f:
-        reader = Utils.CSVreader(f)
-        for line in reader:
-            chrom = line[0]
-            start = Utils.safeInt(line[1])
-            end   = Utils.safeInt(line[2])
-            if start is None or end is None:
-                continue
-            if chrom not in regions:
-                continue
-            txregions = regions[chrom]
-            overs = findOverlapping(start, end, txregions, P.ovbases)
-            if overs:
-                overs.sort(key=lambda n: n[0])
-                for ovr in overs:
-                    ov = ovr[1]
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
-                    if P.addBedFields:
-                        sys.stdout.write("\t" + "\t".join(line[1:]))
-                    sys.stdout.write("\n")
-
-def doTranscripts():
-    if len(P.args) == 0:
-        P.errmsg()
-    sys.stdout.write("Gene\tID\tName\tAccession\tChrom\tTXstart\tTXend\tExons\n")
-    if P.args[0] == "all":
-        for tx in P.gl.getAllTranscripts():
-            sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(tx.gene, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
-
-    for name in P.args:
-        gene = P.gl.findGene(name)
-        if gene:
-            for tx in gene.transcripts:
-                sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(name, tx.ID, tx.name, tx.accession, tx.chrom, tx.txstart, tx.txend, ",".join(["{}-{}".format(e[0], e[1]) for e in tx.exons])))
-        else:
-            sys.stderr.write("No gene `{}'.\n".format(name))
-
-def doClassify():
-    C = Classifier()
-    maxd = max(P.updistance, P.dndistance)
-
-    regions = []
-    for a in P.args:
-        if a[0] == '@':
-            regs = readRegions(a)
-            for r in regs:
-                regions.append(r)
-        else:
-            regions.append(a)
-
-    sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
-
-    if P.outfile:
-        out = open(P.outfile, "w")
-    else:
-        out = sys.stdout
-
-    try:
-        if P.mode == "t":
-            out.write("Gene\tID\tAccession\tClass\n")
-        elif P.mode == "g":
-            out.write("Gene\tID\tClass\n")
-
-        for reg in regions:
-            if type(reg).__name__ == 'str':
-                reg = parseRegion(reg)
-            start = reg[1]
-            end   = reg[2]
-            pos   = (start + end) / 2
-            genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
-            if P.mode == "t":
-                for g in genes:
-                    for tr in g.transcripts:
-                        c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c))
-            elif P.mode == "g":
-                for g in genes:
-                    name = g.name
-                    c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                    out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c))
-            elif P.mode == "s":
-                if len(genes) == 0:
-                    C.add('o')
-                else:
-                    for g in genes:
-                        c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                        for x in c:
-                            C.add(x)
-            elif P.mode == "st":
-                if len(genes) == 0:
-                    C.add('o')
-                else:
-                    for g in genes:
-                        for tr in g.transcripts:
-                            c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                            if c:
-                                for x in c:
-                                    C.add(x)
-                            else:
-                                C.add('o')
-                
-        if "s" in P.mode:
-            C.report(out)
-    finally:
-        out.close()
-
-def doSplit():
-    C = Classifier()
-    maxd = max(P.updistance, P.dndistance)
-    for a in P.args:
-        if a[0] != '@':
-            a = '@' + a
-        afr = Utils.AtFileReader(a)
-        header = afr.stream.readline().rstrip("\r\n")
-        C.initStreams(afr.filename, header=header, stream=sys.stdout)
-        while True:
-            line = afr.readline()
-            if line == '':
-                afr.close()
-                break
-            reg = (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2]))
-            pos = reg[1]
-            genes = P.gl.allIntersecting(reg[0], pos - maxd, pos + maxd)
-            if len(genes) == 0:
-                C.writeLine('o', line)
-            else:
-                for g in genes:
-                    c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                    for x in c:
-                        C.writeLine(x, line)
-        C.closeStreams()
-        C.report('s')
-
-def doClosest():
-    infile = P.args[0]
-    nin = 0
-    nout = 0
-
-    if P.outfile:
-        out = open(P.outfile, "w")
-    else:
-        out = sys.stdout
-
-    try:
-        with open(infile, "r") as f:
-            c = csv.reader(f, delimiter='\t')
-            for line in c:
-                nin += 1
-                (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
-                if geneID:
-                    nout += 1
-                    gene = P.gl.findGene(geneID)
-                    outrow = line + [str(dist), gene.ID, gene.name]
-                    out.write("\t".join(outrow) + "\n")
-        sys.stderr.write("Classified {}/[] regions.\n".format(nin, nout))
-
-    finally:
-        if P.outfile:
-            out.close()
 
 def main(args):
     cmd = P.parseArgs(args)
     P.gl = loadGenes(P.source)
     try:
-        if cmd == 'region':         # Print the region for the genes passed as arguments.
-            doRegion()
-        elif cmd == 'transcripts':  # Display the transcripts for the genes passed as arguments.
-            doTranscripts()
-        elif cmd == 'classify':  # Classify the given position (chr:pos) according to the transcripts it falls in
-            doClassify()
-        elif cmd == 'split':
-            doSplit()
-        elif cmd == 'makedb':
-            doMakeDB()
-        elif cmd == 'overlap':
-            doOverlap()
-        elif cmd == 'closest':
-            doClosest()
+        if cmd in COMMAND_NAMES:
+            c = COMMANDS[cmd]
+            c().run(P)
+        else:
+            usage(P)
     except IOError:
         return
 
