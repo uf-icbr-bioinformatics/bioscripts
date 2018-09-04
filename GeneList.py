@@ -53,6 +53,14 @@ class Genelist():
         self.genes = {}
         self.btFlags = {"": True, "*": True}
 
+    # Next two methods allow a genelist to be used in a with statement
+    # Useful for GenelistDB.
+    def __enter__(self):
+        return self
+
+    def __exit__(self):
+        pass
+
     def saveAllToDB(self, filename):
         """Save all genes to the database represented by connection `conn'."""
         tot  = 0                # Total number of genes written
@@ -285,107 +293,110 @@ class Genelist():
 
 class GenelistDB(Genelist):
     dbname = None
+    dbconn = None
+    _level = 0
+    dbcurs = None
     preloaded = False           # Did we preload all genes into the Genelist?
     genesTable = {}
     transcriptsTable = {}
 
+    def __enter__(self):
+        self._level += 1
+        if not self.dbconn:
+            # sys.stderr.write("Opening connection to db {}\n".format(self.dbname))
+            self.dbconn = sql.connect(self.dbname)
+        return self.dbconn
+
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        if self.dbconn:
+            self._level -= 1
+            if self._level == 0:
+                # sys.stderr.write("Closing db connection.\n")
+                self.dbconn.close()
+                self.dbconn = None
+
     def getGenesTable(self):
         if not self.genesTable:
-            conn = sql.connect(self.dbname)
-            try:
-                for row in conn.execute("SELECT ID, biotype, name FROM genes;"):
+            with self:
+                for row in self.dbconn.execute("SELECT ID, biotype, name FROM genes;"):
                     self.genesTable[row[0]] = {'gene_id': row[0],
                                                'gene_biotype': row[1] or "???",
                                                'gene_name': row[2]}
-            finally:
-                conn.close()
         return self.genesTable
 
     def getTranscriptsTable(self):
         if not self.transcriptsTable:
-            conn = sql.connect(self.dbname)
-            try:
-                for row in conn.execute("SELECT transcripts.ID, genes.biotype, transcripts.name, genes.name FROM transcripts, genes WHERE genes.ID=transcripts.parentID;"):
+            with self:
+                for row in self.dbconn.execute("SELECT transcripts.ID, genes.biotype, transcripts.name, genes.name FROM transcripts, genes WHERE genes.ID=transcripts.parentID;"):
                     self.transcriptsTable[row[0]] = {'transcript_id': row[0],
                                                      'gene_biotype': row[1] or "???",
                                                      'transcript_name': row[2],
                                                      'gene_name': row[3]}
-            finally:
-                conn.close()
         return self.transcriptsTable
 
     def allGeneNames(self):
         names = []
-        conn = sql.connect(self.dbname)
-        try:
-            curr = conn.execute("SELECT name FROM Genes ORDER BY name")
+        with self:
+            #conn = sql.connect(self.dbname)
+#        try:
+            curr = self.dbconn.execute("SELECT name FROM Genes ORDER BY name")
             names = [ r[0] for r in curr.fetchall() ]
-        finally:
-            conn.close()
+#        finally:
+#            conn.close()
         return names
 
     def findGene(self, name, chrom=None):
         """Returns the gene called `name'. The name is matched against the ID, name, geneid, and ensg fields."""
-        conn = sql.connect(self.dbname)
-        try:
-            row = conn.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=? OR name=? OR geneid=? OR ensg=?", 
-                               (name, name, name, name)).fetchone()
+        with self:
+            row = self.dbconn.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=? OR name=? OR geneid=? OR ensg=?", 
+                                      (name, name, name, name)).fetchone()
             if row:
                 gid = row[0]
                 g = Gene(gid, row[5], row[6])
                 for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
                     setattr(g, pair[0], pair[1])
-                for trow in conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                for trow in self.dbconn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
                     tid = trow[0]
                     tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                     tr.exons = []
                     for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                         setattr(tr, pair[0], pair[1])
-                    for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                    for erow in self.dbconn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                         tr.addExon(erow[0], erow[1])
                     g.addTranscript(tr)
                 return g
             else:
                 return None
-        finally:
-            conn.close()
 
     def allTranscriptNames(self):
         names = []
-        conn = sql.connect(self.dbname)
-        try:
-            curr = conn.execute("SELECT ID FROM Transcripts ORDER BY ID")
+        with self:
+            curr = self.dbconn.execute("SELECT ID FROM Transcripts ORDER BY ID")
             names = [ r[0] for r in curr.fetchall() ]
-        finally: 
-            conn.close()
         return names
 
     def findTranscript(self, name, chrom=None):
         """Returns the transcript called `name'. The name is matched against the ID, name, accession, and enst fields."""
-        conn = sql.connect(self.dbname)
-        try:
-            trow = conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE ID=? OR name=? OR accession=? OR enst=?",
-                                (name, name, name, name)).fetchone()
+        with self:
+            trow = self.dbconn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE ID=? OR name=? OR accession=? OR enst=?",
+                                       (name, name, name, name)).fetchone()
             if trow:
                 tid = trow[0]
                 tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                 tr.exons = []
                 for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                     setattr(tr, pair[0], pair[1])
-                for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                for erow in self.dbconn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                     tr.addExon(erow[0], erow[1])
                 return tr
             else:
                 return None
-        finally:
-            conn.close()
 
     def getAllTranscripts(self):
         """Returns an iterator that lopps over all transcripts."""
-        conn = sql.connect(self.dbname)
-        try:
-            tcur = conn.cursor()
-            ecur = conn.cursor()
+        with self:
+            tcur = self.dbconn.cursor()
+            ecur = self.dbconn.cursor()
 
             for trow in tcur.execute("SELECT t.ID, t.name, accession, enst, t.chrom, t.strand, txstart, txend, cdsstart, cdsend, g.name FROM Transcripts t, Genes g WHERE t.parentID = g.ID ORDER BY t.chrom, txstart"):
                 if trow:
@@ -398,24 +409,21 @@ class GenelistDB(Genelist):
                     for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                         tr.addExon(erow[0], erow[1])
                     yield tr
-        finally:
-            conn.close()
 
     def findGenes(self, query, args=[]):
         """Returns the list of all genes that satisfy the `query'. `query' should be a SQL statement that returns
 a single column of values from the ID field."""
         result = []
-        conn = sql.connect(self.dbname)
-        try:
-            gcur = conn.cursor()
-            for geneIDrow in conn.execute(query, args):
+        with self:
+            gcur = self.dbconn.cursor()
+            for geneIDrow in self.dbconn.execute(query, args):
                 geneID = geneIDrow[0]
                 row = gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes WHERE ID=?", (geneID,)).fetchone()
                 if row:
                     g = Gene(geneID, row[5], row[6])
                     for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
                         setattr(g, pair[0], pair[1])
-                    for trow in conn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (geneID,)):
+                    for trow in self.dbconn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (geneID,)):
                         tid = trow[0]
                         tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                         tr.exons = []
@@ -426,8 +434,6 @@ a single column of values from the ID field."""
                         g.addTranscript(tr)
                     result.append(g)
             return result
-        finally:
-            conn.close()
 
     def allIntersecting(self, chrom, start, end):
         """Returns all genes in `chrom' that intersect the `start-end' region."""
@@ -444,12 +450,11 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
         d1 = 0
         d2 = 0
 
-        conn = sql.connect(self.dbname)
-        try:
+        with self:
             query0 = "SELECT ID, start, end FROM Genes WHERE chrom='{}' AND start < {} AND end > {} ORDER BY start DESC LIMIT 1;".format(chrom, start, end) # containing
             query1 = "SELECT ID, end   FROM Genes WHERE chrom='{}' AND end < {} ORDER BY end DESC LIMIT 1;".format(chrom, start) # upstream
             query2 = "SELECT ID, start FROM Genes WHERE chrom='{}' AND start > {} ORDER BY start LIMIT 1;".format(chrom, end) # downstream
-            r0 = conn.execute(query0).fetchone()
+            r0 = self.dbconn.execute(query0).fetchone()
             if r0:
                 g0 = r0[0]
                 p0 = r0[1]
@@ -458,12 +463,12 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
                 d2 = q0 - end
                 return (g0, min(d1, d2))
 
-            r1 = conn.execute(query1).fetchone()
+            r1 = self.dbconn.execute(query1).fetchone()
             if r1:
                 g1 = r1[0]
                 p1 = r1[1]
                 d1 = start - p1
-            r2 = conn.execute(query2).fetchone()
+            r2 = self.dbconn.execute(query2).fetchone()
             if r2:
                 g2 = r2[0]
                 p2 = r2[1]
@@ -483,8 +488,6 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
                     return (g1, -d1)
                 else:
                     return (g2, d2)
-        finally:
-            conn.close()
 
 # Transcript class
 

@@ -132,3 +132,10 @@ and the following one (if any). Otherwise, returns None."""
             return x
         else:
             self.errmsg(self.BADFILE, x)
+
+### Class to define subcommands in program
+
+class Command():
+    cmd = ""
+    c = None                    # Database cursor, if needed
+

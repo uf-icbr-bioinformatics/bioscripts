@@ -65,6 +65,8 @@ def parseFraction(f):
     """Parse a fraction returning a float.
 Returns None if f is not in the form N/D, or if D is 0."""
     p = f.find("/")
+    if p < 1:
+        return None
     s1 = f[:p]
     s2 = f[p+1:]
     try:
@@ -334,14 +336,32 @@ format, "?" otherwise."""
                 return "fastq"
         return "?"
 
+# Writer for shell scripts
+
+class ShellScript():
+    filename = ""
+    out = None
+
+    def __init__(self, filename):
+        self.filename = filename
+
+    def __enter__(self):
+        self.out = open(self.filename, "w")
+        self.out.write("#!/bin/bash\n\n")
+        return self.out
+
+    def __exit__(self, type, value, traceback):
+        self.out.close()
+        os.chmod(self.filename, 0770)
+        
 # Utils
 
 def readDelim(stream):
     l = stream.readline().rstrip("\r\n")
-    if l == '':
-        return None
-    else:
+    if l:
         return l.split("\t")
+    else:
+        return None
 
 ### Smart CSV reader
 

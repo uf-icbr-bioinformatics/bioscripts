@@ -71,10 +71,7 @@ by at least `minover'."""
 
 ### Command classes
 
-class Command():
-    cmd = ""
-
-class MakeDB(Command):
+class MakeDB(Script.Command):
     cmd = "makedb"
 
     def usage(self, P):
@@ -95,7 +92,7 @@ database. Both are required.
         ng = P.gl.saveAllToDB(dbfile)
         sys.stderr.write("done, {} genes written.\n".format(ng))
 
-class Classify(Command):
+class Classify(Script.Command):
     cmd = "classify"
     regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o') ]
     totals = {}
@@ -115,7 +112,11 @@ class Classify(Command):
         stream.write("Class\tNumber\tPercentage\n")
         tot = self.totals['n']
         for regs in self.regnames:
-            stream.write("{}\t{}\t{:.2f}%\n".format(regs[0], self.totals[regs[1]], 100.0 * self.totals[regs[1]] / tot))
+            if tot > 0:
+                pct = 100.0 * self.totals[regs[1]] / tot
+            else:
+                pct = 0
+            stream.write("{}\t{}\t{:.2f}%\n".format(regs[0], self.totals[regs[1]], pct))
         stream.write("Total\t{}\t\n".format(tot))
 
     def initStreams(self, filename, header=None, stream=None):
@@ -235,7 +236,7 @@ Options:
         finally:
             out.close()
 
-class Region(Command):
+class Region(Script.Command):
     cmd = "region"
 
     def usage(self, P):
@@ -303,7 +304,7 @@ Options:
                 else:
                     sys.stderr.write("No gene `{}'.\n".format(name))
 
-class Transcripts(Command):
+class Transcripts(Script.Command):
     cmd = "transcripts"
 
     def usage(self, P):
@@ -333,7 +334,7 @@ treated as a gene identifier, and its transcripts are printed.
                 else:
                     sys.stderr.write("No gene `{}'.\n".format(name))
 
-class Overlap(Command):
+class Overlap(Script.Command):
     cmd = "overlap"
 
     def usage(self, P):
@@ -418,7 +419,7 @@ Options:
                             sys.stdout.write("\t" + "\t".join(line[1:]))
                         sys.stdout.write("\n")
 
-class Split(Command):
+class Split(Script.Command):
     cmd = "split"
 
     def usage(self, P):
@@ -462,7 +463,7 @@ per the `classify' command, and written to the appropriate output file.
             C.closeStreams()
             C.report('s')
 
-class Closest(Command):
+class Closest(Script.Command):
     cmd = "closest"
 
     def usage(self, P):
@@ -496,40 +497,42 @@ Output is written to standard ouptut, unless an output file is specified with -o
         nin = 0
         nout = 0
 
-        for a in P.args:
-            if a[0] == '@':
-                (nin, nout) = self.runFile(a[1:], out)
-            else:
-                regions.append(parseRegion(a))
-
-        for reg in regions:
-            nin += 1
-            (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2])
-            if geneID:
-                nout += 1
-                gene = P.gl.findGene(geneID)
-                out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
-        sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
-
-    def runFile(self, infile, out):
-        nin = 0
-        nout = 0
         try:
-            with open(infile, "r") as f:
-                c = csv.reader(f, delimiter='\t')
-                for line in c:
+            with P.gl:
+                for a in P.args:
+                    if a[0] == '@':
+                        (nin, nout) = self.runFile(a[1:], out)
+                    else:
+                        regions.append(parseRegion(a))
+
+                for reg in regions: # Does nothing if we're in @ mode
                     nin += 1
-                    (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
+                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2])
                     if geneID:
                         nout += 1
                         gene = P.gl.findGene(geneID)
-                        outrow = line + [str(dist), gene.ID, gene.name]
-                        out.write("\t".join(outrow) + "\n")
-            sys.stderr.write("Classified {}/[] regions.\n".format(nin, nout))
-
+                        out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
         finally:
             if P.outfile:
                 out.close()
+        sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
+
+    def runFile(self, infile, out):
+        if not os.path.isfile(infile):
+            P.errmsg(P.NOFILE)
+        nin = 0
+        nout = 0
+        with open(infile, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                nin += 1
+                (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
+                if geneID:
+                    nout += 1
+                    gene = P.gl.findGene(geneID)
+                    outrow = line + [str(dist), gene.ID, gene.name]
+                    out.write("\t".join(outrow) + "\n")
+                raw_input()
         return (nin, nout)
 
 ### Catalog of commands
@@ -654,6 +657,7 @@ class Prog(Script.Script):
 
 P = Prog("genes.py", version="1.0", usage=usage, 
          errors=[('BADSRC', 'Missing gene database'),
+                 ('NOFILE', 'The input file does not exist.'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
                  ('NOOUTDB', 'Missing output database filename', "Please specify the name of the output database file."),
                  ('NOCMD', 'Missing command', "Please specify a command (one of {}).".format(", ".join(COMMAND_NAMES))),
