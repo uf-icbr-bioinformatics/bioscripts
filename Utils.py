@@ -370,7 +370,7 @@ class ShellScript():
 
     def __exit__(self, type, value, traceback):
         self.out.close()
-        os.chmod(self.filename, 0770)
+        os.chmod(self.filename, 0o770)
         
 # Utils
 
