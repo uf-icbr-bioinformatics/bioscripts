@@ -429,7 +429,7 @@ a single column of values from the ID field."""
                         tr.exons = []
                         for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                             setattr(tr, pair[0], pair[1])
-                        for erow in conn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
+                        for erow in self.dbconn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                             tr.addExon(erow[0], erow[1])
                         g.addTranscript(tr)
                     result.append(g)

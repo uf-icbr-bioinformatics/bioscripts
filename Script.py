@@ -4,6 +4,15 @@ import sys
 import os.path
 import Utils
 
+### Class to define subcommands in program
+
+class Command():
+    _cmd = ""
+    __doc__ = "Use this to document commands."
+    c = None                    # Database cursor, if needed
+
+### Main Script class
+
 class Script():
     name = ""
     version = "1.0"
@@ -12,6 +21,8 @@ class Script():
     errorNames = {}
     errorMsg = {}
     errorCode = 1
+    _commands = {}
+    _commandNames = []
 
     def __init__(self, name, version="1.0", usage=None, errors=[]):
         """Errors should be a list of tuples: (code, name, message)."""
@@ -91,7 +102,6 @@ and the following one (if any). Otherwise, returns None."""
                         sys.exit(errcode)
                     else:
                         sys.stderr.write("Unknown error code {}\n".format(errcode))
-                        sys.exit(0)
                 sys.exit(0)
 
     def errmsg(self, code, *args):
@@ -133,9 +143,14 @@ and the following one (if any). Otherwise, returns None."""
         else:
             self.errmsg(self.BADFILE, x)
 
-### Class to define subcommands in program
+    def addCommand(self, className):
+        name = className._cmd
+        self._commands[name] = className
+        self._commandNames.append(name)
+        self._commandNames.sort()
 
-class Command():
-    cmd = ""
-    c = None                    # Database cursor, if needed
-
+    def findCommand(self, cmd):
+        if cmd in self._commands:
+            return self._commands[cmd]
+        else:
+            return None

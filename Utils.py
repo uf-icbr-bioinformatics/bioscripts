@@ -336,6 +336,24 @@ format, "?" otherwise."""
                 return "fastq"
         return "?"
 
+class Output():
+    destination = None
+    out = None                  # stream
+    __doc__ = "A class that returns a stream to an open file, or sys.stdout if the filename is None."
+
+    def __init__(self, destination):
+        self.destination = destination
+
+    def __enter__(self):
+        self.out = sys.stdout
+        if self.destination:
+            self.out = open(self.destination, "w")
+        return self.out
+
+    def __exit__(self, type, value, traceback):
+        if self.destination:
+            self.out.close()
+
 # Writer for shell scripts
 
 class ShellScript():
@@ -754,7 +772,7 @@ class GenomicWindower():
         if self.out:
             self.out.write("fixedStep chrom={} start={} step={} span={}\n".format(echrom, epos, self.window, self.window))
 
-    def add(self, entry):
+    def add(self, entry, weight=1):
         echrom = entry[0]
         epos = entry[1]
 

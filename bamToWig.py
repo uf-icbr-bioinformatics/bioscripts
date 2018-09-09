@@ -27,7 +27,8 @@ Options:
  -m       | Convert diff meth file to bedGraph (value column: 5)
  -p       | Convert a Homer peaks.txt file to bedGraph
  -a       | ATAC mode (build pileup on read starts only).
-
+ -l       | In ATAC mode, add read length at each start position
+            instead of 1.
 """.format(trackdata.window))
 
 ### Program object
@@ -46,8 +47,9 @@ class trackdata():
     homer = False
     ercc = False                # If True, preserve ERCC reads
     atac = False
+    addlen = False
     bambase = None
-
+    
     def trackHeader(self):
         if self.diff or self.homer:
             l = "track type=bedGraph"
@@ -358,23 +360,21 @@ def bamToWigA(trackdata):
     window = trackdata.window
     normalize = trackdata.normalize
     scale = trackdata.scale
+    addlen = trackdata.addlen
     sys.stderr.write("Normalizing on {} reads, scale={}\n".format(normalize, scale))
     f = 1.0 * scale / normalize
 
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-
-    G = GenomicWindower(window, out)
-    try:
-        for line in sys.stdin:
-            line = line.rstrip("\n").split("\t")
-            G.add((line[0], int(line[1])))
-    finally:
-        G.close()
-        if trackdata.outfile:
-            out.close()
+    with Utils.Output(trackdata.outfile) as out:
+        G = GenomicWindower(window, out)
+        try:
+            for line in sys.stdin:
+                line = line.rstrip("\n").split("\t")
+                if addlen:
+                    G.add((line[0], int(line[1]), int(line[3])))
+                else:
+                    G.add((line[0], int(line[1]), 1))
+        finally:
+            G.close()
             
 def parseArgs(args, td):
     infile = None

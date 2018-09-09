@@ -72,7 +72,7 @@ by at least `minover'."""
 ### Command classes
 
 class MakeDB(Script.Command):
-    cmd = "makedb"
+    _cmd = "makedb"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py makedb [options] dbfile
@@ -93,7 +93,7 @@ database. Both are required.
         sys.stderr.write("done, {} genes written.\n".format(ng))
 
 class Classify(Script.Command):
-    cmd = "classify"
+    _cmd = "classify"
     regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o') ]
     totals = {}
     streams = {}
@@ -166,7 +166,6 @@ Options:
   -s     | Summary classification only (number and percentage of region classes).
 
 """.format(P.updistance, P.updistance, P.dndistance))
-
     
     def run(self, P):
         maxd = max(P.updistance, P.dndistance)
@@ -237,7 +236,7 @@ Options:
             out.close()
 
 class Region(Script.Command):
-    cmd = "region"
+    _cmd = "region"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py region [options] spec ... 
@@ -305,7 +304,7 @@ Options:
                     sys.stderr.write("No gene `{}'.\n".format(name))
 
 class Transcripts(Script.Command):
-    cmd = "transcripts"
+    _cmd = "transcripts"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py transcripts spec ... 
@@ -335,7 +334,7 @@ treated as a gene identifier, and its transcripts are printed.
                     sys.stderr.write("No gene `{}'.\n".format(name))
 
 class Overlap(Script.Command):
-    cmd = "overlap"
+    _cmd = "overlap"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py overlap [options] bedfile spec...
@@ -420,7 +419,7 @@ Options:
                         sys.stdout.write("\n")
 
 class Split(Script.Command):
-    cmd = "split"
+    _cmd = "split"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py [options] split filename...
@@ -464,7 +463,7 @@ per the `classify' command, and written to the appropriate output file.
             C.report('s')
 
 class Closest(Script.Command):
-    cmd = "closest"
+    _cmd = "closest"
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py closest [options] spec...
@@ -532,25 +531,11 @@ Output is written to standard ouptut, unless an output file is specified with -o
                     gene = P.gl.findGene(geneID)
                     outrow = line + [str(dist), gene.ID, gene.name]
                     out.write("\t".join(outrow) + "\n")
-                raw_input()
         return (nin, nout)
-
-### Catalog of commands
-
-COMMANDS = {'makedb': MakeDB,
-            'classify': Classify,
-            'region': Region,
-            'transcripts': Transcripts,
-            'overlap': Overlap,
-            'split': Split,
-            'closest': Closest}
-
-COMMAND_NAMES = sorted(COMMANDS.keys())
 
 ### Main
 
 def usage(what=None):
-    global COMMANDS, COMMAND_NAMES
     if what == None:
         sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
 
@@ -570,11 +555,12 @@ Common options (applicable to all commands):
 
 Use genes.py -h <command> to get help on <command> and its specific options.
 
-""".format(", ".join(COMMAND_NAMES)))
+""".format(", ".join(P._commandNames)))
 
-    elif what in COMMAND_NAMES:
-        c = COMMANDS[what]
-        c().usage(P)
+    else:
+        c = P.findCommand(what)
+        if c:
+            c().usage(P)
         
 ### Program object
 
@@ -649,7 +635,7 @@ class Prog(Script.Script):
                 self.args.append(a)
             else:
                 cmd = a
-        if cmd not in COMMAND_NAMES:
+        if cmd not in self._commandNames:
             P.errmsg(self.NOCMD)
         if not self.source:
             P.errmsg(self.BADSRC)
@@ -660,8 +646,15 @@ P = Prog("genes.py", version="1.0", usage=usage,
                  ('NOFILE', 'The input file does not exist.'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
                  ('NOOUTDB', 'Missing output database filename', "Please specify the name of the output database file."),
-                 ('NOCMD', 'Missing command', "Please specify a command (one of {}).".format(", ".join(COMMAND_NAMES))),
+                 ('NOCMD', 'Missing command', "Please specify a command."),
                  ('NOSPECS', 'Missing specs', "Please provide at least one gene or region spec.") ])
+P.addCommand(MakeDB)
+P.addCommand(Classify)
+P.addCommand(Region)
+P.addCommand(Transcripts)
+P.addCommand(Overlap)
+P.addCommand(Split)
+P.addCommand(Closest)
 
 ### Main
 
@@ -669,8 +662,8 @@ def main(args):
     cmd = P.parseArgs(args)
     P.gl = loadGenes(P.source)
     try:
-        if cmd in COMMAND_NAMES:
-            c = COMMANDS[cmd]
+        c = P.findCommand(cmd)
+        if c:
             c().run(P)
         else:
             usage(P)
