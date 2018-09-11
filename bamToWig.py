@@ -6,7 +6,7 @@ import subprocess
 import pysam
 
 import Script
-from Utils import LinkedList, LinkedListPool, GenomicWindower, DualBAMReader
+from Utils import LinkedList, LinkedListPool, GenomicWindower, DualBAMReader, Output
 
 def usage():
     sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
@@ -364,7 +364,7 @@ def bamToWigA(trackdata):
     sys.stderr.write("Normalizing on {} reads, scale={}\n".format(normalize, scale))
     f = 1.0 * scale / normalize
 
-    with Utils.Output(trackdata.outfile) as out:
+    with Output(trackdata.outfile) as out:
         G = GenomicWindower(window, out)
         try:
             for line in sys.stdin:
@@ -392,6 +392,8 @@ def parseArgs(args, td):
             td.ercc = True
         elif a == "-a":
             td.atac = True
+        elif a == "-l":
+            td.addlen = True
         elif next == "-n":
             td.normalize = P.toInt(a)
             next = ""
@@ -443,5 +445,3 @@ if __name__ == "__main__":
         main(args)
     else:
         P.errmsg(P.NOFILE)
-
-

@@ -747,6 +747,7 @@ class GenomicWindower():
     end = 0                     # End of current window
     end2 = 0                    # End of window after the current one
     data = []                   # Data contained in current window
+    total = 0                   # Total weight of entries in current window
 
     def __init__(self, window, out=None):
         self.window = window
@@ -759,6 +760,7 @@ class GenomicWindower():
         self.end = epos + self.window
         self.end2 = self.end + self.window
         self.data = [entry]
+        self.total = entry[2]
         
     def close(self):
         if self.data:
@@ -766,13 +768,17 @@ class GenomicWindower():
 
     def outputWindow(self):
         if self.out:
-            self.out.write("{}\t{}\t{}\t{}\n".format(self.chrom, self.start, self.end, len(self.data)))
+            self.out.write("{}\t{}\t{}\t{}\n".format(self.chrom, self.start, self.end, self.total))
 
     def nextBlock(self, echrom, epos):
         if self.out:
             self.out.write("fixedStep chrom={} start={} step={} span={}\n".format(echrom, epos, self.window, self.window))
 
-    def add(self, entry, weight=1):
+    def _add(self, entry):
+        self.data.append(entry)
+        self.total += entry[2]
+
+    def add(self, entry):
         echrom = entry[0]
         epos = entry[1]
 
@@ -792,7 +798,7 @@ class GenomicWindower():
 
         # Are we still inside the window? If so, add this.
         if epos < self.end:
-            self.data.append(entry)
+            self._add(entry)
             return entry
 
         # Are we in next window? Open consecutive window (without block)
