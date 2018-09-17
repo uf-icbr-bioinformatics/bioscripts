@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import random
 import numpy as np
 from Script import Script
 
@@ -55,15 +56,40 @@ class CovStats():
         bc = self.counts[2][1] / scale
         pct = bc / genomesize
         sys.stdout.write("75th percentile - bases covered at {}X: {:,}bp ({:.1f}%)\n".format(self.counts[2][0], int(bc), 100.0 * pct))
+
+class SNPsite():
+    all1freq = 0.0
+    coverage = 0
+    all1count = 0
+    all2count = 0
+
+    def __init__(self):
+        self.all1freq = random.random()
+
+    def seen(self):
+        self.coverage += 1
+        if random.random() <= self.all1freq:
+            self.all1count += 1
+        else:
+            self.all2count += 1
+
+    def sqerror(self):
+        x = self.all1freq - 1.0 * self.all1count / self.coverage
+        return x * x
         
 class SNPstats():
     positions = []
+    snps = {}
     counts = []
-
+    ndetected = 0
+    
     def __init__(self, size, sitefreq):
         nsites = int(sitefreq * size)
         sys.stderr.write("Simulating {} SNP positions.\n".format(nsites))
         self.positions = np.random.choice(size, nsites, replace=False)
+        self.positions.sort()
+        for p in self.positions:
+            self.snps[p] = SNPsite()
         self.counts = [ [1, 0],
                         [5, 0],
                         [10, 0],
@@ -72,12 +98,42 @@ class SNPstats():
                         [50, 0],
                         [100, 0] ]
 
-    def pass1(self, vector):
+    def addread(self, start, end):
+        for i in range(start, end):
+            if i in self.snps:
+                self.snps[i].seen()
+
+    def snpCoverage(self):
         for p in self.positions:
-            x = vector[p]
-            for c in self.counts:
-                if x >= c[0]:
-                    c[1] += 1
+            snp = self.snps[p]
+            x = snp.coverage
+            if x:
+                self.ndetected += 1
+                for c in self.counts:
+                    if x >= c[0]:
+                        c[1] += 1
+
+    def avgError(self):
+        errs = []
+        for p in self.positions:
+            snp = self.snps[p]
+            if snp.coverage > 0:
+                errs.append(snp.sqerror())
+        if errs:
+            return np.mean(errs)
+        else:
+            return None
+                        
+    def report(self):
+        self.snpCoverage()
+        sys.stdout.write("\n=== SNPs ===\n")
+        nsnps = len(self.positions)
+        sys.stdout.write("Simulated: {}\n".format(nsnps))
+        sys.stdout.write("Detected: {} ({:.1f}%)\n".format(self.ndetected, 100.0 * self.ndetected / nsnps))
+        for c in self.counts:
+            sys.stdout.write("  at {}X: {} ({:.1f}%)\n".format(c[0], c[1], 100.0 * c[1] / nsnps))
+        sys.stdout.write("Average squared error: {}\n".format(self.avgError()))
+        sys.stdout.write("\n")
 
 def usage():
     sys.stderr.write("""simcov.py - Simulate short read coverage.
@@ -111,7 +167,8 @@ class Simcov(Script):
     scale = 1.0
 
     snpfreq = None
-
+    snpstats = None
+    
     def parseArgs(self, args):
         self.standardOpts(args)
         prev = ""
@@ -144,6 +201,8 @@ class Simcov(Script):
         self.scale = 1.0 * self.vectorSize / self.genomeSize
         effReads = int(np.around(self.nreads * self.scale))
         self.writeConfiguration()
+        if self.snpfreq:
+            self.snpstats = SNPstats(self.vectorSize, self.snpfreq)
         if self.paired:
             self.simulatePaired(effReads)
         else:
@@ -162,6 +221,8 @@ class Simcov(Script):
             end = min(pos + self.readlen, self.vectorSize)
             for p in range(start, end):
                 self.vector[p] += 1
+            if self.snpstats:
+                self.snpstats.addread(start, end)
 
     def simulatePaired(self, nreads):
         low = 1 - self.insertSize
@@ -174,12 +235,16 @@ class Simcov(Script):
             end   = max(pos, 0)
             for p in range(start, end):
                 self.vector[p] += 1
+            if self.snpstats:
+                self.snpstats.addread(start, end)
 
             # right read
             start = min(pos + self.insertSize, self.vectorSize)
             end   = min(start + self.readlen, self.vectorSize)
             for p in range(start, end):
                 self.vector[p] += 1
+            if self.snpstats:
+                self.snpstats.addread(start, end)
             
     def writeConfiguration(self):
         sys.stdout.write("=== Configuration ===\n")
@@ -205,9 +270,10 @@ class Simcov(Script):
         CS.report(self.scale, self.genomeSize)
 
         if self.snpfreq:
-            SS = SNPstats(self.vectorSize, self.snpfreq)
-            SS.pass1(self.vector)
-            print SS.counts
+            self.snpstats.report()
+            #SS = SNPstats(self.vectorSize, self.snpfreq)
+            #SS.pass1(self.vector)
+            #print SS.counts
         
 if __name__ == "__main__":
     S = Simcov("simcov.py", version="1.0", usage=usage)
