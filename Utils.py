@@ -339,10 +339,11 @@ format, "?" otherwise."""
 class Output():
     destination = None
     out = None                  # stream
-    __doc__ = "A class that returns a stream to an open file, or sys.stdout if the filename is None."
+    __doc__ = "A class that returns a stream to an open file, or sys.stdout if the filename is None or '-'."
 
     def __init__(self, destination):
-        self.destination = destination
+        if destination != '-':
+            self.destination = destination
 
     def __enter__(self):
         self.out = sys.stdout

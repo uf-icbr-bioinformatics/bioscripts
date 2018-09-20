@@ -14,9 +14,9 @@ def loadGenes(filename):
     if not loaderClass:
         P.errmsg(P.BADSRC)
     loader = loaderClass(filename)
-    sys.stderr.write("Loading genes database from {}... ".format(filename))
+    sys.stderr.write("[Loading genes database from {}... ".format(filename))
     gl = loader.load(preload=False)
-    sys.stderr.write("{} genes loaded.\n".format(gl.ngenes))
+    sys.stderr.write("{} genes loaded.]\n".format(gl.ngenes))
     return gl
 
 def parseRegion(c):
@@ -181,12 +181,7 @@ Options:
 
         sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
 
-        if P.outfile:
-            out = open(P.outfile, "w")
-        else:
-            out = sys.stdout
-
-        try:
+        with Utils.Output(P.outfile):
             if P.mode == "t":
                 out.write("Gene\tID\tAccession\tClass\n")
             elif P.mode == "g":
@@ -232,8 +227,6 @@ Options:
 
             if "s" in P.mode:
                 self.report(out)
-        finally:
-            out.close()
 
 class Region(Script.Command):
     _cmd = "region"
@@ -488,15 +481,10 @@ Output is written to standard ouptut, unless an output file is specified with -o
     def run(self, P):
         regions = []
 
-        if P.outfile:
-            out = open(P.outfile, "w")
-        else:
-            out = sys.stdout
+        with Utils.Output(P.outfile):
+            nin = 0
+            nout = 0
 
-        nin = 0
-        nout = 0
-
-        try:
             with P.gl:
                 for a in P.args:
                     if a[0] == '@':
@@ -511,9 +499,6 @@ Output is written to standard ouptut, unless an output file is specified with -o
                         nout += 1
                         gene = P.gl.findGene(geneID)
                         out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
-        finally:
-            if P.outfile:
-                out.close()
         sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
 
     def runFile(self, infile, out):
@@ -532,6 +517,46 @@ Output is written to standard ouptut, unless an output file is specified with -o
                     outrow = line + [str(dist), gene.ID, gene.name]
                     out.write("\t".join(outrow) + "\n")
         return (nin, nout)
+
+### Annotate
+
+class Annotate(Script.Command):
+    _cmd = "annotate"
+
+    def usage(self, P):
+        sys.stderr.write("""Usage: genes.py annotate [options] infile
+
+Rewrite input file `infile' adding gene annotations. Options:
+
+  -i I | Gene identifiers are in this column (default: 1).
+  -w W | Comma-separated list of wanted fields from db (default: 'name').
+
+""")
+
+    def run(self, P):
+        if len(P.args) == 0:
+            P.errmsg(P.NOFILE)
+        infile = P.args[0]
+        idcol = P.idcol
+        inscol = idcol + 1
+        fieldnames = [ s.upper() for s in P.wanted ]
+        missing = [ "???" for s in P.wanted ]
+        query = "SELECT {} FROM Genes WHERE ID=?".format(",".join(P.wanted))
+        with Utils.Output(P.outfile) as out:
+            with P.gl:
+                with open(infile, "r") as f:
+                    c = csv.reader(f, delimiter='\t')
+                    hdr = c.next()
+                    hdr[inscol:inscol] = fieldnames
+                    out.write("\t".join(hdr) + "\n")
+                    for row in c:
+                        gid = row[P.idcol].strip('"')
+                        data = P.gl.getGeneInfo(gid, query)
+                        if data:
+                            row[inscol:inscol] = data
+                        else:
+                            row[inscol:inscol] = missing
+                        out.write("\t".join(row) + "\n")
 
 ### Main
 
@@ -578,6 +603,8 @@ class Prog(Script.Script):
     ovbases = 100               # Number of overlap bases
     addBedFields = False        # If True, add contents of original BED file
     excel = False
+    idcol = 0                   # Column containing gene id for Annotate
+    wanted = ['name']           # Wanted field(s) from db for Annotate
 
     def parseArgs(self, args):
         cmd = None
@@ -617,7 +644,13 @@ class Prog(Script.Script):
                     next = ""
                 else:
                     self.errmsg('BADREGION')
-            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o"]:
+            elif next == "-c":
+                self.idcol = self.toInt(a) - 1
+                next = ""
+            elif next == "-w":
+                self.wanted = a.split(",")
+                next = ""
+            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w"]:
                 next = a
             elif a == '-t':
                 if self.mode == "s":
@@ -655,6 +688,7 @@ P.addCommand(Transcripts)
 P.addCommand(Overlap)
 P.addCommand(Split)
 P.addCommand(Closest)
+P.addCommand(Annotate)
 
 ### Main
 

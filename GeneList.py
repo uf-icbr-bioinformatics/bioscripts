@@ -489,6 +489,12 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
                 else:
                     return (g2, d2)
 
+    def getGeneInfo(self, geneid, query):
+        with self:
+            gcur = self.dbconn.cursor()
+            row = gcur.execute(query, (geneid,)).fetchone()
+            return row
+
 # Transcript class
 
 class Transcript():
@@ -1030,8 +1036,8 @@ class GFFloader(GeneLoader):
         with open(self.filename, "r") as f:
             reader = Utils.CSVreader(f)
             for line in reader:
-                if len(line) < 8:
-                    print("|"+line+"|")
+#                if len(line) < 8:
+#                    print("|"+line+"|")
                 if line[6] == '+':
                     strand = 1
                 else:
@@ -1118,12 +1124,13 @@ class DBloader(GeneLoader):
                         g.addTranscript(tr)
             else:
                 try:
-                    row = self.conn.execute("SELECT ngenes FROM Counts").fetchone()
+                    ncur = self.conn.execute("SELECT ngenes FROM Counts")
+                    self.gl.ngenes = ncur.fetchone()[0]
                 except:
-                    row = self.conn.execute("SELECT count(*) FROM Genes").fetchone() # Fallback method for databases that don't have the Counts table yet...
+                    ncur = self.conn.execute("SELECT count(*) FROM Genes") # Fallback method for databases that don't have the Counts table yet...
+                    self.gl.ngenes = ncur.fetchone()[0]
         finally:
             self.conn.close()
-        self.gl.ngenes = row[0]
 
 ### Database stuff
 

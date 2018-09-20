@@ -16,8 +16,8 @@ def usage():
 Options: 
  -o FILE  | Name of output file (default: stdout)
  -w W     | Set window size to W (default: {})
- -n N     | Normalize values by number of reads N
- -s SCALE | Scale values by SCALE (y = r * SCALE / N)
+ -n N     | Normalize values by number of reads N (default: {})
+ -s SCALE | Scale values by SCALE (y = r * SCALE / N) (default: {})
  -t S     | Set track title to S
  -d D     | Set track description to D
  -b BAM2  | Use bamfile BAM2 as baseline: report difference 
@@ -29,7 +29,7 @@ Options:
  -a       | ATAC mode (build pileup on read starts only).
  -l       | In ATAC mode, add read length at each start position
             instead of 1.
-""".format(trackdata.window))
+""".format(trackdata.window, trackdata.normalize, trackdata.scale))
 
 ### Program object
 
