@@ -5,7 +5,7 @@ import os.path
 import random
 import numpy as np
 from Script import Script
-from Utils import Output
+from Utils import Output, genOpen
 
 class CovStats():
     maxCov = 0
@@ -344,10 +344,12 @@ class SimReads(Script):
 
         if self.paired:
             if self.outfile:
-                self.outfile2 = self.outfile + "_R2.fastq"
-                self.outfile = self.outfile + "_R1.fastq"
+                self.outfile2 = self.outfile + "_R2.fastq.gz"
+                self.outfile = self.outfile + "_R1.fastq.gz"
             else:
                 self.errmsg(self.NOOUTFILE)
+        else:
+            self.outfile = self.outfile + ".fastq.gz"
 
     def initQuality(self):
         r = self.qstart - self.qend # range of quality scores
@@ -416,8 +418,8 @@ class SimReads(Script):
                     self.writeRead(out, r, q, readname, i)
 
     def simPairedEnd(self):
-        with open(self.outfile, "w") as out1:
-            with open(self.outfile2, "w") as out2:
+        with genOpen(self.outfile, "w") as out1:
+            with genOpen(self.outfile2, "w") as out2:
                 with open(self.filename, "r") as f:
                     for i in range(1, self.nreads + 1):
                         (r1, r2) = self.getPairedRead(f)
