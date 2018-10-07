@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 import sys
+import os.path
 import random
 import numpy as np
 from Script import Script
+from Utils import Output
 
 class CovStats():
     maxCov = 0
@@ -58,6 +60,8 @@ class CovStats():
         sys.stdout.write("75th percentile - bases covered at {}X: {:,}bp ({:.1f}%)\n".format(self.counts[2][0], int(bc), 100.0 * pct))
 
 class SNPsite():
+    ref = ""
+    alt = ""
     all1freq = 0.0
     coverage = 0
     all1count = 0
@@ -66,6 +70,15 @@ class SNPsite():
     def __init__(self):
         self.all1freq = random.random()
 
+
+    def setRefAllele(self, a):
+        self.ref = a
+        while True:
+            b = random.choice('ACGT')
+            if b != a:
+                self.alt = b
+                break
+            
     def seen(self):
         self.coverage += 1
         if random.random() <= self.all1freq:
@@ -154,7 +167,13 @@ Values for -l, -n, -g and -t can be followed by G (for billion) or M (for millio
 The value for -f can be expressed as a float or a fraction (e.g. 1/8)
 
 """.format(Simcov.readlen, Simcov.nreads, Simcov.genomeSize, Simcov.insertSize, Simcov.vectorSize))
-    
+
+def usage2():
+    pass
+
+def usage3():
+    pass
+
 class Simcov(Script):
     readlen = 150
     paired = False
@@ -274,9 +293,191 @@ class Simcov(Script):
             #SS = SNPstats(self.vectorSize, self.snpfreq)
             #SS.pass1(self.vector)
             #print SS.counts
+
+### Read simulator
+
+class SimReads(Script):
+    readlen = 150
+    seqlen = 1000000
+    nreads = 1000000
+    insertSize = 400
+    insertStdev = 10
+    paired = False
+    seqname = "seq"
+    qstart = 40
+    qend = 30
+    qvstart = 1
+    qvend = 10
+    filename = None
+    outfile = None
+    outfile2 = None
+    
+    fpstart = 0
+    fpend = 0
+    qavgs = []
+    qstdevs = []
+    
+    def parseArgs(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-l":
+                self.seqlen = self.toInt(a)
+                prev = ""
+            elif prev == "-sn":
+                self.seqname = a
+                prev = ""
+            elif prev == "-nr":
+                self.nreads = self.toInt(a)
+                prev = ""
+            elif prev == "-rl":
+                self.readlen = self.toInt(a)
+                prev = ""
+            elif prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a in ["-l", "-sn", "-nr", "-rl", "-o"]:
+                prev = a
+            elif a == "-p":
+                self.paired = True
+            elif self.filename is None:
+                self.filename = a
+
+        if self.paired:
+            if self.outfile:
+                self.outfile2 = self.outfile + "_R2.fastq"
+                self.outfile = self.outfile + "_R1.fastq"
+            else:
+                self.errmsg(self.NOOUTFILE)
+
+    def initQuality(self):
+        r = self.qstart - self.qend # range of quality scores
+        x = np.power(r, 1.0 / self.readlen)
+        q = 1
+        for i in range(self.readlen):
+            self.qavgs.append(41-q)
+            q *= x
+        r = self.qvend - self.qvstart
+        x = np.power(r, 1.0 / self.readlen)
+        q = self.qvstart
+        for i in range(self.readlen):
+            self.qstdevs.append(q)
+            q *= x
+        
+    def getBounds(self):
+        fl = os.path.getsize(self.filename)
+        self.fpend = fl - self.readlen
+        with open(self.filename, "r") as f:
+            f.readline()
+            self.fpstart = f.tell()
+
+    def getOneRead(self, f, s):
+        """Return the sequence of a read starting at position `s' from stream `f'."""
+        bases = []
+        f.seek(s)
+        n = 0
+        while True:
+            b = f.read(1)
+            if b == "\n":
+                continue
+            bases.append(b)
+            n += 1
+            if n == self.readlen:
+                break
+        return bases
+
+    def getSingleRead(self, f):
+        return self.getOneRead(f, random.randint(self.fpstart, self.fpend))
+
+    def getPairedRead(self, f):
+        (start1, start2) = self.genInsertPosition()
+        r1 = self.getOneRead(f, start1)
+        r2 = self.getOneRead(f, start2)
+        r2.reverse()
+        return (r1, r2)
+    
+    def genInsertPosition(self):
+        insize = np.random.normal(self.insertSize, self.insertStdev)
+        while True:
+            start = random.randint(self.fpstart, self.fpend)
+            if start + insize < self.fpend:
+                return (start, start + insize - self.readlen)
+    
+    def genQuality(self):
+        """Returns a list of quality values sampling from the qavgs and qstdevs distribution."""
+        return np.clip(np.random.normal(self.qavgs, self.qstdevs), 0, 40) + 33
+    
+    def simSingleEnd(self):
+        readname = self.seqname
+        with Output(self.outfile) as out:
+            with open(self.filename, "r") as f:
+                for i in range(1, self.nreads + 1):
+                    r = self.getSingleRead(f)
+                    q = self.genQuality()
+                    self.writeRead(out, r, q, readname, i)
+
+    def simPairedEnd(self):
+        with open(self.outfile, "w") as out1:
+            with open(self.outfile2, "w") as out2:
+                with open(self.filename, "r") as f:
+                    for i in range(1, self.nreads + 1):
+                        (r1, r2) = self.getPairedRead(f)
+                        q1 = self.genQuality()
+                        q2 = self.genQuality()
+                        self.writePairedRead(out1, out2, r1, q1, r2, q2, i)
+                    
+    def writeRead(self, out, r, q, name, i):
+        out.write("@{}_{}\n".format(name, i))
+        for b in r:
+            out.write(b)
+        out.write("\n+\n")
+        for b in q:
+            out.write(chr(int(b)))
+        out.write("\n")
+
+    def writePairedRead(self, out1, out2, r1, q1, r2, q2, i):
+        readname1 = self.seqname + "_R1"
+        readname2 = self.seqname + "_R2"
+        self.writeRead(out1, r1, q1, readname1, i)
+        self.writeRead(out2, r2, q2, readname2, i)
+        
+    def run(self):
+        self.getBounds()
+        self.initQuality()
+        if self.paired:
+            self.simPairedEnd()
+        else:
+            self.simSingleEnd()
+
+    def makeRandomSeq(self):
+        with open(self.filename, "w") as out:
+            out.write(">" + self.seqname + "\n")
+            i = 0
+            while True:
+                out.write(random.choice('ACGT'))
+                i += 1
+                if i == self.seqlen:
+                    break
+                if i % 60 == 0:
+                    out.write("\n")
+            out.write("\n")
+        sys.stderr.write("Random sequence of {}bp written to file {}\n".format(self.seqlen, self.filename))
+
+    def run2(self):
+        self.makeRandomSeq()
         
 if __name__ == "__main__":
-    S = Simcov("simcov.py", version="1.0", usage=usage)
-    S.parseArgs(sys.argv[1:])
-    S.run()
-    
+    prog = os.path.split(sys.argv[0])[1]
+    args = sys.argv[1:]
+    if prog == "simcov.py":
+        S = Simcov("simcov.py", version="1.0", usage=usage)
+        S.parseArgs(args)
+        S.run()
+    elif prog == "simreads.py":
+        S = SimReads("simreads.py", version="1.0", usage=usage2,
+                     errors=[('NOOUTFILE', 'Missing output file name', 'The output file name must be specified in paired-end mode.')])
+        S.parseArgs(args)
+        S.run()
+    elif prog == "simseq.py":
+        S = SimReads("simseq.py", version="1.0", usage=usage3)
+        S.parseArgs(args)
+        S.run2()
