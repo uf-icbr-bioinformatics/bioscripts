@@ -348,7 +348,7 @@ class Output():
     def __enter__(self):
         self.out = sys.stdout
         if self.destination:
-            self.out = open(self.destination, "w")
+            self.out = genOpen(self.destination, "w")
         return self.out
 
     def __exit__(self, type, value, traceback):

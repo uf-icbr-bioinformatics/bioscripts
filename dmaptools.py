@@ -150,8 +150,9 @@ Options:
  -d methdiff  | Minimum difference of methylation rates (default: {}).
  -s maxdist   | Maximum distance between sites in a window (default: {}).
  -w minsize   | Minimum size of a DMR (default: {}).
+ --insig num  | Maximum number of sites below methdiff allowed in DMR (default: {}).
 
-""".format(DMR2writer.minsites, DMR2.mincov, DMR2.methdiff, DMR2writer.maxsitedist, DMR2writer.mindmrsize))
+""".format(DMR2writer.minsites, DMR2.mincov, DMR2.methdiff, DMR2writer.maxsitedist, DMR2writer.mindmrsize, DMR2writer.insig_max))
 
     elif what == 'winavg':
         sys.stderr.write("""dmaptools.py - Operate on methylation data.
@@ -764,6 +765,9 @@ class DMR2writer():
     direction = ""              # Either "+" or "-"
     positions = []              # Position of sites in this DMR
     data = []                   # Diffmeth values for sites in this DMR
+    insig_max = None            # Maximum number of insignificant sites (--insig)
+    insig_count = 0             # Number of insignificant sites in this DMR
+   
     
     def start(self, chrom, pos, diff):
         self.maybeWriteDMR()
@@ -776,17 +780,28 @@ class DMR2writer():
     def maybeWriteDMR(self):
         ns = len(self.positions)
         if ns < self.minsites:
+            #sys.stderr.write("skipping due to sites\n")
             return
         start = self.positions[0]
         end = self.positions[-1]
         if end - start < self.mindmrsize:
+            #sys.stderr.write("skipping due to length\n")
             return
         #sys.stderr.write("{}\n".format(self.data))
         #sys.stderr.write("Writing DMR: {}\n".format((self.chrom, start, end, end-start, sum(self.data) / ns, ns)))
         self.out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(self.chrom, start, end, end-start, sum(self.data) / ns, ns))
 
     def add(self, chrom, pos, diff):
+        # If we are tracking insignificant sites...
+        if self.insig_max is not None:
+            # ...and the # of insig. sites is greater than max
+            if self.insig_count > self.insig_max:
+                # ... start new DMR
+                self.start(chrom, pos, diff)
+                self.insig_count = 0
+                return
         #sys.stderr.write("Adding: {}\n".format((chrom, pos, diff)))
+
         # If we changed chromosomes...
         if chrom != self.chrom:
             # ... start new DMR
@@ -805,6 +820,7 @@ class DMR2writer():
             self.start(chrom, pos, diff)
             return
 
+        
         # Otherwise, extend current DMR
         self.pos = pos
         self.positions.append(pos)
@@ -819,6 +835,7 @@ class DMR2():
     bedfile1 = None          # BED file for test condition
     bedfile2 = None          # BED file for control condition
     outfile  = None
+    track_insig = False      # True if insignificant sites should be tracked
 
     def __init__(self, args):
         self.DW = DMR2writer()
@@ -845,7 +862,11 @@ class DMR2():
             elif next == '-o':
                 self.outfile = a
                 next = ""
-            elif a in ['-w', '-s', '-t', '-c', '-d', '-p', '-o']:
+            elif next == '--insig':
+                self.DW.insig_max = int(a)
+                self.track_insig = True
+                next = ""
+            elif a in ['-w', '-s', '-t', '-c', '-d', '-p', '-o', '--insig']:
                 next = a
             elif self.bedfile1 == None:
                 self.bedfile1 = P.isFile(a)
@@ -869,6 +890,9 @@ class DMR2():
                 d = m1 - m2
                 if abs(d) > self.methdiff:
                     self.DW.add(BR.chrom, BR.pos, d)
+                # if we are tracking
+                elif self.track_insig:
+                    self.DW.insig_count += 1
             else:
                 return
         self.DW.maybeWriteDMR()
