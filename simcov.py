@@ -7,6 +7,19 @@ import numpy as np
 from Script import Script
 from Utils import Output, genOpen
 
+def reverseComplement(seq):
+    bases = {'A': 'T',
+             'C': 'G',
+             'G': 'C',
+             'T': 'A',
+             'a': 't',
+             'c': 'g',
+             'g': 'c',
+             't': 'a'}
+    rc = [ bases[b] for b in seq ]
+    rc.reverse()
+    return rc
+
 class CovStats():
     maxCov = 0
     numCovBases = 0
@@ -77,7 +90,13 @@ class SNPsite():
             if b != a:
                 self.alt = b
                 break
-            
+
+    def genAllele(self):
+        if random.random() <= self.all1freq:
+            return self.ref
+        else:
+            return self.alt
+
     def seen(self):
         self.coverage += 1
         if random.random() <= self.all1freq:
@@ -178,16 +197,22 @@ and `outfile'_R2.fastq.gz.
 
 Options:
 
-  -sn S | Base name for reads (default: {}).
-  -nr N | Number of reads (default: {}).
+  -sn N | Base name for reads (default: {}).
+  -nr R | Number of reads (default: {}).
   -rl L | Read length (default: {}).
+  -i  I | Average insert size (default: {})
+  -is S | Standard deviation of insert size (default: {}) 
+  -e  E | Set sequencing error rate to E (default: {})
+  -qs S | Average quality at first base (default: {})
+  -qe E | Average quality at last base (default: {})
+  -qv V | Quality standard deviation at last base (default: {})
   -o  O | Use O as base name for output files (default: {})
   -p    | Enable paired-end mode.
   -s P  | Simulate presence of P SNPs.
 
 The value for -nr can be followed by G (for billion) or M (for million).
 
-""".format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.outfile))
+""".format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.insertSize, SimReads.insertStdev, SimReads.errRate, SimReads.qstart, SimReads.qend, SimReads.qvend, SimReads.outfile))
 
 def usage3():
     sys.stderr.write("""simseq.py - Generate random sequence.
@@ -335,6 +360,7 @@ class SimReads(Script):
     insertStdev = 10
     paired = False
     seqname = "seq"
+    errRate = 0.001
     qstart = 40
     qend = 30
     qvstart = 1
@@ -343,7 +369,8 @@ class SimReads(Script):
     filename = None
     outfile = "reads"
     outfile2 = None
-    
+    snpfile = None
+
     fpstart = 0
     fpend = 0
     qavgs = []
@@ -372,7 +399,28 @@ class SimReads(Script):
             elif prev == "-s":
                 self.nsnps = self.toInt(a)
                 prev = ""
-            elif a in ["-l", "-sn", "-nr", "-rl", "-o", "-s"]:
+            elif prev == "-qs":
+                self.qstart = self.toFloat(a)
+                prev = ""
+            elif prev == "-qe":
+                self.qend = self.toFloat(a)
+                prev = ""
+            elif prev == "-qv":
+                self.qvend = self.toFloat(a)
+                prev = ""
+            elif prev == "-so":
+                self.snpfile = a
+                prev = ""
+            elif prev == "-e":
+                self.errRate = self.toFloat(a)
+                prev = ""
+            elif prev == "-i":
+                self.insertSize = self.toInt(a)
+                prev = ""
+            elif prev == "-is":
+                self.insertStdev = self.toInt(a)
+                prev = ""
+            elif a in ["-l", "-sn", "-nr", "-rl", "-o", "-so", "-s", "-qs", "-qe", "-qv", "-e", "-i", "-is"]:
                 prev = a
             elif a == "-p":
                 self.paired = True
@@ -435,9 +483,17 @@ class SimReads(Script):
             for p in positions:
                 snp = self.snps[p]
                 out.write("{}\t{}\t{}\t{}\n".format(p, snp.ref, snp.alt, snp.all1freq))
+
+    def getAllele(self, b, pos):
+        if pos in self.snps:
+            snp = self.snps[pos]
+            return snp.genAllele()
+        else:
+            return b
                 
-    def getOneRead(self, f, s):
-        """Return the sequence of a read starting at position `s' from stream `f'."""
+    def getOneRead(self, f, q, s):
+        """Return the sequence of a read starting at position `s' using quality scores `q' from stream `f'."""
+        probs = np.power(10, q / -10)
         bases = []
         f.seek(s)
         n = 0
@@ -445,20 +501,24 @@ class SimReads(Script):
             b = f.read(1)
             if b == "\n":
                 continue
+            if random.random() < probs[n]:
+                b = random.choice('ACGT')
+            else:
+                b = self.getAllele(b, f.tell() - 1)
             bases.append(b)
             n += 1
             if n == self.readlen:
                 break
         return bases
 
-    def getSingleRead(self, f):
-        return self.getOneRead(f, random.randint(self.fpstart, self.fpend))
+    def getSingleRead(self, f, q):
+        return self.getOneRead(f, q, random.randint(self.fpstart, self.fpend))
 
-    def getPairedRead(self, f):
+    def getPairedRead(self, f, q1, q2):
         (start1, start2) = self.genInsertPosition()
-        r1 = self.getOneRead(f, start1)
-        r2 = self.getOneRead(f, start2)
-        r2.reverse()
+        r1 = self.getOneRead(f, q1, start1)
+        r2 = self.getOneRead(f, q2, start2)
+        r2 = reverseComplement(r2)
         return (r1, r2)
     
     def genInsertPosition(self):
@@ -470,7 +530,7 @@ class SimReads(Script):
     
     def genQuality(self):
         """Returns a list of quality values sampling from the qavgs and qstdevs distribution."""
-        return np.clip(np.random.normal(self.qavgs, self.qstdevs), 0, 40) + 33
+        return np.clip(np.random.normal(self.qavgs, self.qstdevs), 0, 40)
     
     def simSingleEnd(self):
         readname = self.seqname
@@ -478,8 +538,8 @@ class SimReads(Script):
         with Output(self.outfile) as out:
             with open(self.filename, "r") as f:
                 for i in range(1, self.nreads + 1):
-                    r = self.getSingleRead(f)
                     q = self.genQuality()
+                    r = self.getSingleRead(f, q)
                     self.writeRead(out, r, q, readname, i)
 
     def simPairedEnd(self):
@@ -488,9 +548,10 @@ class SimReads(Script):
             with genOpen(self.outfile2, "w") as out2:
                 with open(self.filename, "r") as f:
                     for i in range(1, self.nreads + 1):
-                        (r1, r2) = self.getPairedRead(f)
                         q1 = self.genQuality()
                         q2 = self.genQuality()
+                        np.flip(q2, axis=0)
+                        (r1, r2) = self.getPairedRead(f, q1, q2)
                         self.writePairedRead(out1, out2, r1, q1, r2, q2, i)
                     
     def writeRead(self, out, r, q, name, i):
@@ -499,12 +560,12 @@ class SimReads(Script):
             out.write(b)
         out.write("\n+\n")
         for b in q:
-            out.write(chr(int(b)))
+            out.write(chr(int(b) + 33))
         out.write("\n")
 
     def writePairedRead(self, out1, out2, r1, q1, r2, q2, i):
-        readname1 = self.seqname + "_R1"
-        readname2 = self.seqname + "_R2"
+        readname1 = self.seqname + "_1"
+        readname2 = self.seqname + "_2"
         self.writeRead(out1, r1, q1, readname1, i)
         self.writeRead(out2, r2, q2, readname2, i)
         
@@ -512,6 +573,8 @@ class SimReads(Script):
         self.getBounds()
         self.initQuality()
         self.initSNPs()
+        if self.snpfile:
+            self.writeSNPs(self.snpfile)
         if self.paired:
             self.simPairedEnd()
         else:

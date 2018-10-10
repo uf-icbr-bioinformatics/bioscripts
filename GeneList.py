@@ -440,7 +440,7 @@ a single column of values from the ID field."""
         return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
                               (chrom, start, end, start, end, start, end))
 
-    def findClosestGene(self, chrom, start, end):
+    def findClosestGene(self, chrom, start, end, transcripts=True):
         """Find the closest gene to the region chrom:start-end, in either direction. Returns a tuple: (gene, distance).
 distance can be positive (downstream of `end') or negative (upstream of `start')."""
         g1 = None
@@ -449,11 +449,17 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
         p2 = 0
         d1 = 0
         d2 = 0
+        args = {'table': "Transcripts" if transcripts else "Genes",
+                'chrom': chrom,
+                'start': start,
+                'end': end,
+                'fstart': "txstart" if transcripts else "start",
+                'fend': "txend" if transcripts else "end"}
 
         with self:
-            query0 = "SELECT ID, start, end FROM Genes WHERE chrom='{}' AND start < {} AND end > {} ORDER BY start DESC LIMIT 1;".format(chrom, start, end) # containing
-            query1 = "SELECT ID, end   FROM Genes WHERE chrom='{}' AND end < {} ORDER BY end DESC LIMIT 1;".format(chrom, start) # upstream
-            query2 = "SELECT ID, start FROM Genes WHERE chrom='{}' AND start > {} ORDER BY start LIMIT 1;".format(chrom, end) # downstream
+            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
+            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
+            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
             r0 = self.dbconn.execute(query0).fetchone()
             if r0:
                 g0 = r0[0]

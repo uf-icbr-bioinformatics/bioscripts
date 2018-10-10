@@ -162,6 +162,7 @@ Options:
            to the same value (default: {}).
   -dup N | Upstream distance from gene (default: {}).
   -ddn N | Downstream distance from gene (default: {}).
+  -a     | Preserve original contents of input file.
   -t     | List individual transcripts.
   -s     | Summary classification only (number and percentage of region classes).
 
@@ -181,7 +182,7 @@ Options:
 
         sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
 
-        with Utils.Output(P.outfile):
+        with Utils.Output(P.outfile) as out:
             if P.mode == "t":
                 out.write("Gene\tID\tAccession\tClass\n")
             elif P.mode == "g":
@@ -352,6 +353,7 @@ Options:
   -dup N | Upstream distance from gene (default: {}).
   -ddn N | Downstream distance from gene (default: {}).
   -t     | Show transcripts instead of genes.
+  -a     | Preserve original contents of input file.
   -b B   | Minimum number of bases in minimum overlap (default: {}).
 
 """.format(P.regwanted, P.updistance, P.updistance, P.dndistance, P.ovbases))
@@ -360,7 +362,7 @@ Options:
 
     def run(self, P):
         if len(P.args) < 2:
-            P.errmsg()
+            P.errmsg(P.NOFILE)
         bedfile = P.args[0]
         if P.args[1] == "all":
             if P.mode == "t":
@@ -461,11 +463,11 @@ class Closest(Script.Command):
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py closest [options] spec...
 
-Find the closest gene to each one of the regions specified on the command line.
-Each `spec' can be a position (chrom:pos) or a region (chrom:start-end) or
-a file specification of the form @filename:col, in which case regions are
-read from filename, assuming that the chromosome is on column `col' (defaulting
-to 1) and start and end positions are in the two next columns.
+Find the closest gene (or transcript, if -t is specified) to each one of the 
+regions specified on the command line. Each `spec' can be a position (chrom:pos),
+a region (chrom:start-end), or a file specification of the form @filename:col, 
+in which case regions are read from filename, assuming that the chromosome is in 
+column `col' (defaulting to 1) and start and end positions are in the two next columns.
 
 If a region was read from the command-line, output consists of the following 
 tab-separated fields:
@@ -480,28 +482,29 @@ Output is written to standard ouptut, unless an output file is specified with -o
     
     def run(self, P):
         regions = []
+        transcript = "t" in P.mode
 
-        with Utils.Output(P.outfile):
+        with Utils.Output(P.outfile) as out:
             nin = 0
             nout = 0
 
             with P.gl:
                 for a in P.args:
                     if a[0] == '@':
-                        (nin, nout) = self.runFile(a[1:], out)
+                        (nin, nout) = self.runFile(a[1:], out, transcripts=transcript)
                     else:
                         regions.append(parseRegion(a))
 
                 for reg in regions: # Does nothing if we're in @ mode
                     nin += 1
-                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2])
+                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript)
                     if geneID:
                         nout += 1
                         gene = P.gl.findGene(geneID)
                         out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
         sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
 
-    def runFile(self, infile, out):
+    def runFile(self, infile, out, transcripts=False):
         if not os.path.isfile(infile):
             P.errmsg(P.NOFILE)
         nin = 0
@@ -510,11 +513,15 @@ Output is written to standard ouptut, unless an output file is specified with -o
             c = csv.reader(f, delimiter='\t')
             for line in c:
                 nin += 1
-                (geneID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]))
-                if geneID:
+                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts)
+                if ID:
                     nout += 1
-                    gene = P.gl.findGene(geneID)
-                    outrow = line + [str(dist), gene.ID, gene.name]
+                    if transcripts:
+                        tx = P.gl.findTranscript(ID)
+                        outrow = line + [str(dist), ID, tx.name]
+                    else:
+                        gene = P.gl.findGene(ID)
+                        outrow = line + [str(dist), gene.ID, gene.name]
                     out.write("\t".join(outrow) + "\n")
         return (nin, nout)
 
