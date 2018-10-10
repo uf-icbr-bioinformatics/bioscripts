@@ -296,14 +296,14 @@ def DOWN(x):
 def plural(x):
     return "" if x == 1 else "s"
 
-def fileToDict(filename, toInt=True, column=1):
+def fileToDict(filename, toInt=True, column=1, delimiter='\t'):
     """Read `filename' and return a dictionary having as keys the strings
 in the first column and as values the contents of the specified `column' 
 (converted to int if `toInt' is True)."""
     result = {}
     with open(filename, "r") as f:
         for line in f:
-            parsed = line.rstrip("\r\n").split("\t")
+            parsed = line.rstrip("\r\n").split(delimiter)
             if toInt:
                 result[parsed[0]] = int(parsed[column])
             else:
