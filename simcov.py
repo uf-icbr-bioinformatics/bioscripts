@@ -70,7 +70,6 @@ class SNPsite():
     def __init__(self):
         self.all1freq = random.random()
 
-
     def setRefAllele(self, a):
         self.ref = a
         while True:
@@ -169,10 +168,42 @@ The value for -f can be expressed as a float or a fraction (e.g. 1/8)
 """.format(Simcov.readlen, Simcov.nreads, Simcov.genomeSize, Simcov.insertSize, Simcov.vectorSize))
 
 def usage2():
-    pass
+    sys.stderr.write("""simreads.py - Generate random short reads from a sequence.
+
+Usage: simreads.py [options] filename.fa
+
+Write randomly-generated reads from the reference sequence in `filename.fa' to
+file `outfile'.fastq.gz. In paired-end mode, writes to `outfile'_R1.fastq.gz
+and `outfile'_R2.fastq.gz.
+
+Options:
+
+  -sn S | Base name for reads (default: {}).
+  -nr N | Number of reads (default: {}).
+  -rl L | Read length (default: {}).
+  -o  O | Use O as base name for output files (default: {})
+  -p    | Enable paired-end mode.
+  -s P  | Simulate presence of P SNPs.
+
+The value for -nr can be followed by G (for billion) or M (for million).
+
+""".format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.outfile))
 
 def usage3():
-    pass
+    sys.stderr.write("""simseq.py - Generate random sequence.
+
+Usage: simseq.py [options] filename.fa
+
+Writes a random sequence in FASTA format to file `filename.fa'. Currently, all bases have equal probability.
+
+Options:
+
+  -sn S | Name of sequence (default: {}).
+  -l L  | Set sequence length to L (default: {})
+
+The Value for -l can be followed by G (for billion) or M (for million).
+
+""".format(SimReads.seqname, SimReads.seqlen))
 
 class Simcov(Script):
     readlen = 150
@@ -193,7 +224,7 @@ class Simcov(Script):
         prev = ""
         for a in args:
             if prev == "-l":
-                self.readlen = self.toInt(a)
+                self.readlen = self.toInt(a, units=True)
                 prev = ""
             elif prev == "-t":
                 self.insertSize = self.toInt(a)
@@ -308,26 +339,29 @@ class SimReads(Script):
     qend = 30
     qvstart = 1
     qvend = 10
+    nsnps = 0
     filename = None
-    outfile = None
+    outfile = "reads"
     outfile2 = None
     
     fpstart = 0
     fpend = 0
     qavgs = []
     qstdevs = []
+    snps = {}
     
     def parseArgs(self, args):
+        self.standardOpts(args)
         prev = ""
         for a in args:
             if prev == "-l":
-                self.seqlen = self.toInt(a)
+                self.seqlen = self.toInt(a, units=True)
                 prev = ""
             elif prev == "-sn":
                 self.seqname = a
                 prev = ""
             elif prev == "-nr":
-                self.nreads = self.toInt(a)
+                self.nreads = self.toInt(a, units=True)
                 prev = ""
             elif prev == "-rl":
                 self.readlen = self.toInt(a)
@@ -335,7 +369,10 @@ class SimReads(Script):
             elif prev == "-o":
                 self.outfile = a
                 prev = ""
-            elif a in ["-l", "-sn", "-nr", "-rl", "-o"]:
+            elif prev == "-s":
+                self.nsnps = self.toInt(a)
+                prev = ""
+            elif a in ["-l", "-sn", "-nr", "-rl", "-o", "-s"]:
                 prev = a
             elif a == "-p":
                 self.paired = True
@@ -372,6 +409,33 @@ class SimReads(Script):
             f.readline()
             self.fpstart = f.tell()
 
+    def initSNPs(self):
+        if self.nsnps == 0:
+            return
+        sys.stderr.write("Simulating {} SNPs\n".format(self.nsnps))
+        n = 0
+        with open(self.filename, "r") as f:
+            while True:
+                sp = random.randint(self.fpstart, self.fpend)
+                f.seek(sp)
+                b = f.read(1)
+                if b in "\r\n":
+                    continue
+                snp = SNPsite()
+                snp.setRefAllele(b)
+                self.snps[sp] = snp
+                n += 1
+                if n == self.nsnps:
+                    break
+
+    def writeSNPs(self, filename):
+        with open(filename, "w") as out:
+            out.write("#Position\tRef\tAlt\tFreq\n")
+            positions = sorted(self.snps.keys())
+            for p in positions:
+                snp = self.snps[p]
+                out.write("{}\t{}\t{}\t{}\n".format(p, snp.ref, snp.alt, snp.all1freq))
+                
     def getOneRead(self, f, s):
         """Return the sequence of a read starting at position `s' from stream `f'."""
         bases = []
@@ -410,6 +474,7 @@ class SimReads(Script):
     
     def simSingleEnd(self):
         readname = self.seqname
+        sys.stderr.write("Writing {} single-end reads to {}\n".format(self.nreads, self.outfile))
         with Output(self.outfile) as out:
             with open(self.filename, "r") as f:
                 for i in range(1, self.nreads + 1):
@@ -418,6 +483,7 @@ class SimReads(Script):
                     self.writeRead(out, r, q, readname, i)
 
     def simPairedEnd(self):
+        sys.stderr.write("Writing {} paired-end reads to {} and {}\n".format(self.nreads, self.outfile, self.outfile2))
         with genOpen(self.outfile, "w") as out1:
             with genOpen(self.outfile2, "w") as out2:
                 with open(self.filename, "r") as f:
@@ -445,6 +511,7 @@ class SimReads(Script):
     def run(self):
         self.getBounds()
         self.initQuality()
+        self.initSNPs()
         if self.paired:
             self.simPairedEnd()
         else:
@@ -478,8 +545,16 @@ if __name__ == "__main__":
         S = SimReads("simreads.py", version="1.0", usage=usage2,
                      errors=[('NOOUTFILE', 'Missing output file name', 'The output file name must be specified in paired-end mode.')])
         S.parseArgs(args)
-        S.run()
+        if S.filename:
+            S.run()
+        else:
+            S.errmsg(S.NOOUTFILE)
     elif prog == "simseq.py":
-        S = SimReads("simseq.py", version="1.0", usage=usage3)
+        S = SimReads("simseq.py", version="1.0", usage=usage3,
+                     errors=[('NOFAFILE', 'Missing output file name', 'The name of the FASTA output file must be specified.')])
         S.parseArgs(args)
-        S.run2()
+        if S.filename:
+            S.run2()
+        else:
+            S.errmsg(S.NOFAFILE)
+            
