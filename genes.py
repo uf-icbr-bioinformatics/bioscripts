@@ -483,6 +483,7 @@ Output is written to standard ouptut, unless an output file is specified with -o
     def run(self, P):
         regions = []
         transcript = "t" in P.mode
+        biotype = "protein_coding" if P.codingOnly else None
 
         with Utils.Output(P.outfile) as out:
             nin = 0
@@ -491,20 +492,20 @@ Output is written to standard ouptut, unless an output file is specified with -o
             with P.gl:
                 for a in P.args:
                     if a[0] == '@':
-                        (nin, nout) = self.runFile(a[1:], out, transcripts=transcript)
+                        (nin, nout) = self.runFile(a[1:], out, transcripts=transcript, biotype=biotype)
                     else:
                         regions.append(parseRegion(a))
 
                 for reg in regions: # Does nothing if we're in @ mode
                     nin += 1
-                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript)
+                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript, biotype=biotype)
                     if geneID:
                         nout += 1
                         gene = P.gl.findGene(geneID)
                         out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
         sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
 
-    def runFile(self, infile, out, transcripts=False):
+    def runFile(self, infile, out, transcripts=False, biotype=None):
         if not os.path.isfile(infile):
             P.errmsg(P.NOFILE)
         nin = 0
@@ -513,7 +514,7 @@ Output is written to standard ouptut, unless an output file is specified with -o
             c = csv.reader(f, delimiter='\t')
             for line in c:
                 nin += 1
-                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts)
+                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts, biotype=biotype)
                 if ID:
                     nout += 1
                     if transcripts:
@@ -612,6 +613,7 @@ class Prog(Script.Script):
     excel = False
     idcol = 0                   # Column containing gene id for Annotate
     wanted = ['name']           # Wanted field(s) from db for Annotate
+    codingOnly = False          # If True (-pc) only look at protein coding genes in Closest
 
     def parseArgs(self, args):
         cmd = None
@@ -671,6 +673,8 @@ class Prog(Script.Script):
                     self.mode = "s"
             elif a == "-a":
                 self.addBedFields = True
+            elif a == "-pc":
+                self.codingOnly = True
             elif cmd:
                 self.args.append(a)
             else:

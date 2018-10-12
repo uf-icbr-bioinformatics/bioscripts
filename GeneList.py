@@ -440,9 +440,13 @@ a single column of values from the ID field."""
         return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
                               (chrom, start, end, start, end, start, end))
 
-    def findClosestGene(self, chrom, start, end, transcripts=True):
+    def findClosestGene(self, chrom, start, end, transcripts=True, biotype=None, tss=False):
         """Find the closest gene to the region chrom:start-end, in either direction. Returns a tuple: (gene, distance).
-distance can be positive (downstream of `end') or negative (upstream of `start')."""
+Distance can be positive (downstream of `end') or negative (upstream of `start'). If `transcripts' is True, look at
+transcript instead of genes; in this case the return value is (transcript ID, distance). If `biotype' is specified,
+restrict the search to genes with that biotype (e.g., protein_coding). If `tss' is True, distances are computed relative
+to the gene's (or transcript's) TSS.
+"""
         g1 = None
         g2 = None
         p1 = 0
@@ -454,12 +458,14 @@ distance can be positive (downstream of `end') or negative (upstream of `start')
                 'start': start,
                 'end': end,
                 'fstart': "txstart" if transcripts else "start",
-                'fend': "txend" if transcripts else "end"}
+                'fend': "txend" if transcripts else "end",
+                'biotype': "AND biotype='{}' ".format(biotype) if biotype else ""}
 
         with self:
-            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
-            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
-            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
+            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} {biotype} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
+            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} {biotype} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
+            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} {biotype} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
+
             r0 = self.dbconn.execute(query0).fetchone()
             if r0:
                 g0 = r0[0]
@@ -1145,11 +1151,11 @@ def initializeDB(filename):
     conn = sql.connect(filename)
     try:
         conn.execute("DROP TABLE IF EXISTS Genes;")
-        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int);")
+        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int, canonical varchar);")
         for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
             conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Transcripts;")
-        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int);")
+        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int, canonical char(1) default 'N');")
         for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
             conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Exons;")
