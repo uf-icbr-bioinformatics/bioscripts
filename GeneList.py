@@ -440,7 +440,7 @@ a single column of values from the ID field."""
         return self.findGenes("SELECT ID from Genes where chrom=? and ((? <= start) and (start <= ?) or ((? <= end) and (end <= ?)) or ((start <= ?) and (end >= ?)))",
                               (chrom, start, end, start, end, start, end))
 
-    def findClosestGene(self, chrom, start, end, transcripts=True, biotype=None, tss=False):
+    def findClosestGene(self, chrom, start, end, transcripts=True, biotype=None, tss=False, canonical=False):
         """Find the closest gene to the region chrom:start-end, in either direction. Returns a tuple: (gene, distance).
 Distance can be positive (downstream of `end') or negative (upstream of `start'). If `transcripts' is True, look at
 transcript instead of genes; in this case the return value is (transcript ID, distance). If `biotype' is specified,
@@ -459,12 +459,13 @@ to the gene's (or transcript's) TSS.
                 'end': end,
                 'fstart': "txstart" if transcripts else "start",
                 'fend': "txend" if transcripts else "end",
-                'biotype': "AND biotype='{}' ".format(biotype) if biotype else ""}
+                'biotype': "AND biotype='{}' ".format(biotype) if biotype else "",
+                'canon': "AND canonical='Y' " if (transcripts and canonical) else ""}
 
         with self:
-            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} {biotype} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
-            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} {biotype} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
-            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} {biotype} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
+            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} {biotype} {canon} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
+            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} {biotype} {canon} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
+            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} {biotype} {canon} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
 
             r0 = self.dbconn.execute(query0).fetchone()
             if r0:
