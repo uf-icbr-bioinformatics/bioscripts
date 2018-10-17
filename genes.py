@@ -498,11 +498,15 @@ Output is written to standard ouptut, unless an output file is specified with -o
 
                 for reg in regions: # Does nothing if we're in @ mode
                     nin += 1
-                    (geneID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript, biotype=biotype, canonical=P.canonical)
-                    if geneID:
+                    (ID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript, biotype=biotype, canonical=P.canonical)
+                    if ID:
                         nout += 1
-                        gene = P.gl.findGene(geneID)
-                        out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, gene.ID, gene.name))
+                        if transcript:
+                            tx = P.gl.findTranscript(ID)
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, tx.name))
+                        else:
+                            gene = P.gl.findGene(ID)
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, gene.name))
         sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
 
     def runFile(self, infile, out, transcripts=False, biotype=None, canonical=False):

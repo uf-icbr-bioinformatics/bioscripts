@@ -463,18 +463,20 @@ to the gene's (or transcript's) TSS.
                 'canon': "AND canonical='Y' " if (transcripts and canonical) else ""}
 
         with self:
-            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} < {start} AND {fend} > {end} {biotype} {canon} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
-            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} < {end} {biotype} {canon} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
-            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} > {start} {biotype} {canon} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
-
+            query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} <= {start} AND {fend} >= {end} {biotype} {canon} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
+            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} <= {start} {biotype} {canon} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
+            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} >= {end} {biotype} {canon} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
             r0 = self.dbconn.execute(query0).fetchone()
             if r0:
                 g0 = r0[0]
-                p0 = r0[1]
-                q0 = r0[2]
-                d1 = start - p0
-                d2 = q0 - end
-                return (g0, min(d1, d2))
+                p1 = r0[1]
+                p2 = r0[2]
+                d1 = start - p1
+                d2 = p2 - end
+                if d1 < d2:
+                    return (g0, -d1)
+                else:
+                    return (g0, d2)
 
             r1 = self.dbconn.execute(query1).fetchone()
             if r1:
@@ -486,16 +488,13 @@ to the gene's (or transcript's) TSS.
                 g2 = r2[0]
                 p2 = r2[1]
                 d2 = p2 - end
-
             if p1 == 0 and p2 == 0: # No results?? This should not happen...
                 return (None, 0)
             elif p1 == 0:           # No upstream, we only have downstream
-                return (g2, p2 - end)
+                return (g2, d2)
             elif p2 == 0:           # No downstream, we only have upstream
-                return (g1, p1 - start)
+                return (g1, start - p1)
             else:
-                d1 = start - p1
-                d2 = p2 - end
                 #print (d1, d2)
                 if d1 < d2:         # We have both, but upstream is closer
                     return (g1, -d1)

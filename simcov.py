@@ -73,6 +73,7 @@ class CovStats():
         sys.stdout.write("75th percentile - bases covered at {}X: {:,}bp ({:.1f}%)\n".format(self.counts[2][0], int(bc), 100.0 * pct))
 
 class SNPsite():
+    truepos = 0
     ref = ""
     alt = ""
     all1freq = 0.0
@@ -373,6 +374,7 @@ class SimReads(Script):
 
     fpstart = 0
     fpend = 0
+    linewidth = 0
     qavgs = []
     qstdevs = []
     snps = {}
@@ -456,6 +458,8 @@ class SimReads(Script):
         with open(self.filename, "r") as f:
             f.readline()
             self.fpstart = f.tell()
+            r = f.readline()
+            self.linewidth = len(r)
 
     def initSNPs(self):
         if self.nsnps == 0:
@@ -470,11 +474,19 @@ class SimReads(Script):
                 if b in "\r\n":
                     continue
                 snp = SNPsite()
+                snp.truepos = self.fpToPos(sp)
                 snp.setRefAllele(b)
                 self.snps[sp] = snp
                 n += 1
                 if n == self.nsnps:
                     break
+        snpsfile = "snps.csv"
+        sys.stderr.write("Writing SNPs to file {}\n".format(snpsfile))
+        self.writeSNPs(snpsfile)
+
+    def fpToPos(self, fp):
+        nrows = (fp - self.fpstart) / self.linewidth # exploit integer division
+        return fp - nrows - self.fpstart + 1
 
     def writeSNPs(self, filename):
         with open(filename, "w") as out:
@@ -482,7 +494,7 @@ class SimReads(Script):
             positions = sorted(self.snps.keys())
             for p in positions:
                 snp = self.snps[p]
-                out.write("{}\t{}\t{}\t{}\n".format(p, snp.ref, snp.alt, snp.all1freq))
+                out.write("{}\t{}\t{}\t{}\n".format(snp.truepos, snp.ref, snp.alt, snp.all1freq))
 
     def getAllele(self, b, pos):
         if pos in self.snps:
