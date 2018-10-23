@@ -313,7 +313,7 @@ in the first column and as values the contents of the specified `column'
 def fileToList(filename, delimiter='\t', hdr=True):
     """Read delimited file `filename' and return its contents as a list of lists. If `hdr' is True (the
 default) treat the first line as header. Returns a tuple (data, header)."""
-    result = []
+    result = [] 
     header = []
     with open(filename, "r") as f:
         r = csv.reader(f, delimiter=delimiter)
@@ -336,6 +336,20 @@ format, "?" otherwise."""
                 return "fastq"
         return "?"
 
+class Pathname():
+    namestring = ""
+    directory = ""
+    name = ""
+    ext = ""
+
+    def __init__(self, namestring):
+        self.namestring = namestring
+        (d, f) = os.path.split(namestring)
+        self.directory = d
+        (n, e) = os.path.splitext(f)
+        self.name = n
+        self.ext = e
+        
 class Output():
     destination = None
     out = None                  # stream
@@ -394,6 +408,8 @@ class CSVreader():
         if type(source).__name__ == 'str':
             self._stream = open(source, "r")
             self._close = True
+        else:
+            self._stream = source
         self._reader = csv.reader(self._stream, delimiter=delimiter)
 
     def __iter__(self):
