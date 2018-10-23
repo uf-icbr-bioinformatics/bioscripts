@@ -167,8 +167,26 @@ class SNPstats():
         sys.stdout.write("Average squared error: {}\n".format(self.avgError()))
         sys.stdout.write("\n")
 
+def usage0():
+    sys.stdout.write("""simcov.py - Short reads simulator.
+
+This program can be used in three different modes. The mode can be selected
+using one of the command-line options -C, -R, and -S, or by invoking this 
+program through a symlink with the appropriate name. The following table 
+describes each mode and how to select it:
+
+Opt | Symlink  | Description
+----+----------+---------------------------------------
+ -C | simcov   | Simulate short-read coverage (default)
+ -S | simseq   | Generate a random reference sequence
+ -R | simreads | Generate simulated short reads
+
+Note that only the basename of the link is used, so for example both `simseq' 
+and  `simseq.py' would invoke simseq mode.
+""")
+        
 def usage():
-    sys.stderr.write("""simcov.py - Simulate short read coverage.
+    sys.stdout.write("""simcov.py - Simulate short read coverage.
 
 Usage: simcov.py [options]
 
@@ -188,7 +206,7 @@ The value for -f can be expressed as a float or a fraction (e.g. 1/8)
 """.format(Simcov.readlen, Simcov.nreads, Simcov.genomeSize, Simcov.insertSize, Simcov.vectorSize))
 
 def usage2():
-    sys.stderr.write("""simreads.py - Generate random short reads from a sequence.
+    sys.stdout.write("""simreads.py - Generate random short reads from a sequence.
 
 Usage: simreads.py [options] filename.fa
 
@@ -216,7 +234,7 @@ The value for -nr can be followed by G (for billion) or M (for million).
 """.format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.insertSize, SimReads.insertStdev, SimReads.errRate, SimReads.qstart, SimReads.qend, SimReads.qvend, SimReads.outfile))
 
 def usage3():
-    sys.stderr.write("""simseq.py - Generate random sequence.
+    sys.stdout.write("""simseq.py - Generate random sequence.
 
 Usage: simseq.py [options] filename.fa
 
@@ -271,7 +289,9 @@ class Simcov(Script):
                 prev = a
             elif a == "-p":
                 self.paired = True
-                
+            elif a == "-C":
+                pass
+            
     def run(self):
         self.vector = np.zeros(self.vectorSize, dtype=int)
         self.scale = 1.0 * self.vectorSize / self.genomeSize
@@ -426,6 +446,8 @@ class SimReads(Script):
                 prev = a
             elif a == "-p":
                 self.paired = True
+            elif a in ["-R", "-S"]:
+                pass
             elif self.filename is None:
                 self.filename = a
 
@@ -610,13 +632,22 @@ class SimReads(Script):
         self.makeRandomSeq()
         
 if __name__ == "__main__":
-    prog = os.path.split(sys.argv[0])[1]
+    prog = os.path.splitext(os.path.split(sys.argv[0])[1])[0]
     args = sys.argv[1:]
-    if prog == "simcov.py":
+    if "-C" in args:
+        prog = "simcov"
+    elif "-R" in args:
+        prog = "simreads"
+    elif "-S" in args:
+        prog = "simseq"
+    if not args:
+        usage0()
+        sys.exit(1)
+    if prog == "simcov" or "-C" in args:
         S = Simcov("simcov.py", version="1.0", usage=usage)
         S.parseArgs(args)
         S.run()
-    elif prog == "simreads.py":
+    elif prog == "simreads" or "-R" in args:
         S = SimReads("simreads.py", version="1.0", usage=usage2,
                      errors=[('NOOUTFILE', 'Missing output file name', 'The output file name must be specified in paired-end mode.')])
         S.parseArgs(args)
@@ -624,7 +655,7 @@ if __name__ == "__main__":
             S.run()
         else:
             S.errmsg(S.NOOUTFILE)
-    elif prog == "simseq.py":
+    elif prog == "simseq" or "-S" in args:
         S = SimReads("simseq.py", version="1.0", usage=usage3,
                      errors=[('NOFAFILE', 'Missing output file name', 'The name of the FASTA output file must be specified.')])
         S.parseArgs(args)

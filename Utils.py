@@ -386,16 +386,27 @@ def readDelim(stream):
 
 class CSVreader():
     _reader = None
+    _stream = None
+    _close = False
     ignorechar = '#'
 
-    def __init__(self, stream, delimiter='\t'):
-        self._reader = csv.reader(stream, delimiter=delimiter)
+    def __init__(self, source, delimiter='\t'):
+        if type(source).__name__ == 'str':
+            self._stream = open(source, "r")
+            self._close = True
+        self._reader = csv.reader(self._stream, delimiter=delimiter)
 
     def __iter__(self):
         return self
 
     def next(self):
-        row = self._reader.next()
+        try:
+            row = self._reader.next()
+        except StopIteration as e:
+            #sys.stderr.write("Cleanup!\n")
+            if self._close:
+                self._stream.close()
+            raise e
         while len(row) == 0 or row[0][0] == self.ignorechar:
             row = self._reader.next()
         else:
