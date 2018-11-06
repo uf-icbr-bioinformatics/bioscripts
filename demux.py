@@ -80,15 +80,6 @@ class Demux(Script.Script):
     distr = 1
     distrout = None
 
-    def parseSlice(self, spec):
-        if ":" in spec:
-            parts = spec.split(":")
-            start = int(parts[0]) if parts[0] else None
-            end   = int(parts[1]) if parts[1] else None
-            return slice(start - 1, end)
-        else:
-            return slice(int(spec) - 1)
-
     def parseArgs(self, args):
         self.nf = 0
         self.standardOpts(args)
@@ -113,7 +104,7 @@ class Demux(Script.Script):
                 self.minpct = self.toFloat(a)
                 next = ""
             elif next == '-s':
-                self.bcslice = self.parseSlice(a)
+                self.bcslice = Utils.parseSlice(a)
                 next = ""
             elif next == '-lt':
                 self.leftTarget = a

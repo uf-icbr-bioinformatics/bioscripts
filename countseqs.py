@@ -5,6 +5,7 @@ import gzip
 import os.path
 
 import Script
+import Utils
 
 __doc__ = """This is doc."""
 
@@ -27,7 +28,10 @@ Options:
 -t         | Print total of all files at the end
 -m         | Print number of reads in millions
 -p         | Verify-paired mode: prints statistics on (in)correct pairing.
--c C       | Cut all reads to length C. Reads shorter than C are discarded.
+-c C       | Trim all reads to lenght C, or to a subsequence if C is in 
+           | `slice' notation: A:B = from position A to B (1-based, inclusive),
+           | A: = from position A to the end, etc.
+
 """)
 
 P = Script.Script("countseqs.py", "1.0", usage=usage)
@@ -42,6 +46,13 @@ def printReads(r):
         return "{:.1f}M".format(r/1000000.0)
     else:
         return r
+
+def getReadName(h):
+    p = h.find(" ")
+    if p == -1:
+        return h
+    else:
+        return h[:p]
 
 def genOpen(filename, mode):
     """Generalized open() function - works on both regular files and .gz files."""
@@ -100,6 +111,7 @@ def verifyPaired(filename1, filename2):
     qdiff2 = 0
     lendiff = 0
     qualdiff = 0
+    namemismatch = 0
     with genOpen(filename1, "r") as f1:
         with genOpen(filename2, "r") as f2:
             while True:
@@ -114,6 +126,8 @@ def verifyPaired(filename1, filename2):
                 if h1 == '' and h2 == '':
                     break
                 total += 1
+                if getReadName(h1) != getReadName(h2):
+                    namemismatch += 1
                 l1 = len(r1)
                 ql1 = len(q1)
                 l2 = len(r2)
@@ -133,11 +147,12 @@ def verifyPaired(filename1, filename2):
     sys.stdout.write("""Reads: {}
 Zero length in 1: {}
 Zero length in 2: {}
-Read/qual mismatch in 1: {}
-Read/qual mismatch in 2: {}
-Read mismatch: {}
-Qual mismatch: {}
-""".format(total, zero1, zero2, qdiff1, qdiff2, lendiff, qualdiff))
+Read/qual length mismatch in 1: {}
+Read/qual length mismatch in 2: {}
+Read length mismatch: {}
+Qual length mismatch: {}
+Name mismatch: {}
+    """.format(total, zero1, zero2, qdiff1, qdiff2, lendiff, qualdiff, namemismatch))
 
 def cutReads(filename1, filename2, outfile1, outfile2):
     nin = 0
@@ -158,10 +173,10 @@ def cutReads(filename1, filename2, outfile1, outfile2):
             q2 = f2.readline().rstrip("\r\n")
             if h1 == '' and h2 == '':
                 break
-            if len(r1) < CUT or len(r2) < CUT:
-                continue
-            o1.write("{}\n{}\n{}\n{}\n".format(h1, r1[:CUT], d1, q1[:CUT]))
-            o2.write("{}\n{}\n{}\n{}\n".format(h2, r2[:CUT], d2, q2[:CUT]))
+#            if len(r1) < CUT or len(r2) < CUT:
+#                continue
+            o1.write("{}\n{}\n{}\n{}\n".format(h1, r1[CUT], d1, q1[CUT]))
+            o2.write("{}\n{}\n{}\n{}\n".format(h2, r2[CUT], d2, q2[CUT]))
     finally:
         f1.close()
         f2.close()
@@ -202,7 +217,7 @@ if __name__ == "__main__":
             next = ""
         elif next == '-c':
             mode = 'c'
-            CUT = P.toInt(a)
+            CUT = Utils.parseSlice(a)
             next = ""
         elif a in ['-o', '-c']:
             next = a

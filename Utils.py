@@ -183,6 +183,15 @@ column Y inclusive), X+K (K columns starting at X)."""
             sys.stderr.write("Incorrect field specification `{}'.\n".format(cs))
     return cols
 
+def parseSlice(spec):
+    if ":" in spec:
+        parts = spec.split(":")
+        start = int(parts[0]) if parts[0] else None
+        end   = int(parts[1]) if parts[1] else None
+        return slice(start - 1, end)
+    else:
+        return slice(int(spec))
+
 def safeReadIntFromFile(filename, default=None, maxtries=20, delay=1):
     """Read an integer from the first line of file `filename', using `default' if the
 line does not contain an integer. If the line is empty, wait `delay' seconds and
