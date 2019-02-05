@@ -302,6 +302,7 @@ recipes, '-h functions' to get documentation on the functions that can be
 used in recipes, and '-h examples' to see examples of recipes.
 
 Options:
+  -o F | Write output to file F
   -n N | Set number of columns in input file to N
   -d   | Dump recipes before executing them.
   -p   | Skip the first line in the input file (header)
@@ -390,7 +391,10 @@ class Driver(Script.Script):
             if next == "-n":
                 self.setNcols(int(a))
                 next = ""
-            elif a in ["-n"]:
+            elif next == "-o":
+                self.outfile = a
+                next = ""
+            elif a in ["-n", "-o"]:
                 next = a
             elif a == '-d':
                 self.dumpRecipe = True
@@ -411,9 +415,6 @@ class Driver(Script.Script):
                 na += 1
             elif na == 1:
                 self.infile = a
-                na += 1
-            elif na == 2:
-                self.outfile = a
                 na += 1
 
     def initialize(self):

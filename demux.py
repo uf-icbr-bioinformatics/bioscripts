@@ -75,6 +75,7 @@ class Demux(Script.Script):
     bcstart = 0
     bcend = None
     bcslice = None
+    removePlus = True           # Only return first component of dual barcodes (e.g. AACC+GGTT)
     leftTarget = None
     rightTarget = None
     distr = 1
@@ -322,7 +323,12 @@ class FastqRec():
         if bcslice is None:
             c = self.name.rfind(":")
             if c > 0:
-                return self.name[c+1:]
+                bc = self.name[c+1:]
+                if P.removePlus:
+                    plus = bc.find("+")
+                    if plus > 0:
+                        bc = bc[:plus]
+                return bc
             else:
                 return None
         else:
@@ -377,6 +383,8 @@ class FastqReader():
     def detect(self, ndetect, bcslice=None):
         """Detect the barcodes contained in the first `ndetect' reads of this fastq file."""
         dm = BarcodeMgr()
+        if P.bcfile:
+            dm.initFromFile(P.bcfile, rc=P.revcomp)
         while True:
             self.nextRead()
             if not self.stream:

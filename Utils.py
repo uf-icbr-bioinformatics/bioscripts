@@ -327,7 +327,10 @@ default) treat the first line as header. Returns a tuple (data, header)."""
     with open(filename, "r") as f:
         r = csv.reader(f, delimiter=delimiter)
         if hdr:
-            header = r.next()
+            try:
+                header = r.next()
+            except StopIteration:
+                pass
         for line in r:
             result.append(line)
     return (result, header)

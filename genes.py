@@ -156,6 +156,8 @@ Classify the specified chromosome position(s) according to the transcripts they 
 an argument has the form @filename:col, read regions from column `col' of file `filename'
 (col defaults to 1).
 
+Output consists of 
+
 Options:
 
   -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
@@ -164,6 +166,8 @@ Options:
   -ddn N | Downstream distance from gene (default: {}).
   -a     | Preserve original contents of input file.
   -t     | List individual transcripts.
+  -ca    | Show classification for canonical transcripts only (requires -t).
+  -X     | Do not display regions that have no classification.
   -s     | Summary classification only (number and percentage of region classes).
 
 """.format(P.updistance, P.updistance, P.dndistance))
@@ -184,9 +188,9 @@ Options:
 
         with Utils.Output(P.outfile) as out:
             if P.mode == "t":
-                out.write("Gene\tID\tAccession\tClass\n")
+                out.write("Chrom\tStart\tEnd\tGene\tID\tAccession\tClass\tExNum\n")
             elif P.mode == "g":
-                out.write("Gene\tID\tClass\n")
+                out.write("Chrom\tStart\tEnd\tGene\tID\tClass\tExNum\n")
 
             for reg in regions:
                 if type(reg).__name__ == 'str':
@@ -198,13 +202,34 @@ Options:
                 if P.mode == "t":
                     for g in genes:
                         for tr in g.transcripts:
-                            c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c))
+                            if (not P.canonical) or tr.canonical:
+                                c = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                                if not c:
+                                    if P.unclassified:
+                                        c = "-"
+                                    else:
+                                        continue
+                                if len(c) > 1:
+                                    exn = c[1:]
+                                    c = c[0]
+                                else:
+                                    exn = ""
+                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c, exn))
                 elif P.mode == "g":
                     for g in genes:
                         name = g.name
                         c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                        out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c))
+                        if not c:
+                            if P.unclassified:
+                                c = "-"
+                            else:
+                                continue
+                        if len(c) > 1:
+                            exn = c[1:]
+                            c = c[0]
+                        else:
+                            exn = ""
+                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c, exn))
                 elif P.mode == "s":
                     if len(genes) == 0:
                         self.add('o')
@@ -212,7 +237,7 @@ Options:
                         for g in genes:
                             c = g.classifyPosition(pos, P.updistance, P.dndistance)
                             for x in c:
-                                self.add(x)
+                                self.add(x[0])
                 elif P.mode == "st":
                     if len(genes) == 0:
                         self.add('o')
@@ -222,7 +247,7 @@ Options:
                                 c = tr.classifyPosition(pos, P.updistance, P.dndistance)
                                 if c:
                                     for x in c:
-                                        self.add(x)
+                                        self.add(x[0])
                                 else:
                                     self.add('o')
 
@@ -464,18 +489,23 @@ class Closest(Script.Command):
         sys.stderr.write("""Usage: genes.py closest [options] spec...
 
 Find the closest gene (or transcript, if -t is specified) to each one of the 
-regions specified on the command line. Each `spec' can be a position (chrom:pos),
-a region (chrom:start-end), or a file specification of the form @filename:col, 
-in which case regions are read from filename, assuming that the chromosome is in 
-column `col' (defaulting to 1) and start and end positions are in the two next columns.
+regions specified on the command line. If -pc is specified, restricts the search
+to coding genes only. If -ca is specified, only looks at the canonical transcript
+for each gene. If -ts is specified, computes distances with respect to the TSS of
+the gene/transcript rather than the closest point.
+
+Each `spec' can be a position (chrom:pos), a region (chrom:start-end), or a file 
+specification of the form @filename:col, in which case regions are read from filename, 
+assuming that the chromosome is in  column `col' (defaulting to 1) and start and end 
+positions are in the two next columns.
 
 If a region was read from the command-line, output consists of the following 
 tab-separated fields:
 
-        chrom, start, end, distance from nearest gene, gene ID, name of gene
+        chrom, start, end, distance from nearest gene, gene ID, name of gene, strand
 
 If regions are read from a file, output consist of each line of the input
-file followed by distance from nearest gene, gene ID, name of gene.
+file followed by distance from nearest gene, gene ID, name of gene, strand.
 
 Output is written to standard ouptut, unless an output file is specified with -o.
 """)
@@ -498,15 +528,15 @@ Output is written to standard ouptut, unless an output file is specified with -o
 
                 for reg in regions: # Does nothing if we're in @ mode
                     nin += 1
-                    (ID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript, biotype=biotype, canonical=P.canonical)
+                    (ID, dist) = P.gl.findClosestGene(reg[0], reg[1], reg[2], transcripts=transcript, biotype=biotype, canonical=P.canonical, tss=P.tss)
                     if ID:
                         nout += 1
                         if transcript:
                             tx = P.gl.findTranscript(ID)
-                            out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, tx.name))
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, tx.name, "+" if tx.strand == 1 else "-"))
                         else:
                             gene = P.gl.findGene(ID)
-                            out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, gene.name))
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], reg[1], reg[2], dist, ID, gene.name, "+" if gene.strand == 1 else "-"))
         sys.stderr.write("Classified {}/{} regions.\n".format(nin, nout))
 
     def runFile(self, infile, out, transcripts=False, biotype=None, canonical=False):
@@ -517,16 +547,18 @@ Output is written to standard ouptut, unless an output file is specified with -o
         with open(infile, "r") as f:
             c = csv.reader(f, delimiter='\t')
             for line in c:
+                if line[0][0] == '#':
+                    continue
                 nin += 1
-                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts, biotype=biotype, canonical=canonical)
+                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts, biotype=biotype, canonical=canonical, tss=P.tss)
                 if ID:
                     nout += 1
                     if transcripts:
                         tx = P.gl.findTranscript(ID)
-                        outrow = line + [str(dist), ID, tx.name]
+                        outrow = line + [str(dist), ID, tx.name, "+" if tx.strand == 1 else "-"]
                     else:
                         gene = P.gl.findGene(ID)
-                        outrow = line + [str(dist), gene.ID, gene.name]
+                        outrow = line + [str(dist), gene.ID, gene.name, "+" if gene.strand == 1 else "-"]
                     out.write("\t".join(outrow) + "\n")
         return (nin, nout)
 
@@ -614,11 +646,13 @@ class Prog(Script.Script):
     mode = "g"                  # used to be cltrans - also "t" for transcript-level, "s" for summary
     ovbases = 100               # Number of overlap bases
     addBedFields = False        # If True, add contents of original BED file
-    excel = False
+    excel = False               # (also used for Classify with a different meaning)
     idcol = 0                   # Column containing gene id for Annotate
     wanted = ['name']           # Wanted field(s) from db for Annotate
     codingOnly = False          # If True (-pc) only look at protein coding genes in Closest
-    canonical = False           # If True (-ca) only look at canonical transcript for each gene in Closest
+    canonical = False           # If True (-ca) only look at canonical transcript for each gene in Closest or Classify
+    tss = False                 # If True (-ts) use TSS as reference point for distances in Closest
+    unclassified = True         # If True, display regions that have no classification. -X disables this.
 
     def parseArgs(self, args):
         cmd = None
@@ -682,6 +716,10 @@ class Prog(Script.Script):
                 self.codingOnly = True
             elif a == "-ca":
                 self.canonical = True
+            elif a == "-ts":
+                self.tss = True
+            elif a == "-X":
+                self.unclassified = False
             elif cmd:
                 self.args.append(a)
             else:

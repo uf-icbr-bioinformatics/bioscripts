@@ -5,6 +5,58 @@ import math
 import os.path
 import pysam
 
+class BAMflagAnalyzer():
+    infiles = []
+    nreads = 0
+    bits = [("PAIRED", 1),
+            ("PROPER_PAIR", 2),
+            ("UNMAP", 4),
+            ("MUNMAP", 8),
+            ("REVERSE", 16),
+            ("MREVERSE", 32),
+            ("READ1", 64),
+            ("READ2", 128),
+            ("SECONDARY", 256),
+            ("QCFAIL", 512),
+            ("DUP", 1024),
+            ("SUPPLEMENTARY", 2048)]
+    counts = {}
+
+    def __init__(self):
+        for b in self.bits:
+            self.counts[b[0]] = 0
+
+    def parseArgs(self, args):
+        self.infiles = args
+
+    def run(self):
+        for f in self.infiles:
+            self.parseBAM(f)
+        self.report()
+
+    def parseBAM(self, bamfile):
+        bf = pysam.AlignmentFile(bamfile, "rb")
+        try:
+            for rec in bf.fetch():
+                self.nreads += 1
+                if (self.nreads % 1000000) == 0:
+                    sys.stderr.write(chr(13) + "{:,} reads processed...".format(self.nreads) + "\033[K")
+                v = rec.flag
+                for b in self.bits:
+                    if b[1] > v:
+                        break
+                    if v & b[1] != 0:
+                        self.counts[b[0]] += 1
+        except:
+            bf.close()
+            sys.stdout.write("\n")
+
+    def report(self):
+        sys.stdout.write("{:14} {:10d}\n".format("TOTAL:", self.nreads))
+        for b in self.bits:
+            c = self.counts[b[0]]
+            sys.stdout.write("{:14} {:10d} ({:.2f}%)\n".format(b[0] + ":", c, 100.0 * c / self.nreads))
+
 class BAManalyzer():
     infiles = []
     nreadsin = 0
@@ -91,6 +143,15 @@ examine one read every 10, until 1000 reads are reached in each file. Options:
         bf.close()
 
 if __name__ == "__main__":
-    B = BAManalyzer()
-    B.parseArgs(sys.argv[1:])
-    B.getReadlen()
+    cmd = os.path.split(sys.argv[0])[1]
+    args = sys.argv[1:]
+    if cmd == "bamreadlen.py":
+        B = BAManalyzer()
+        B.parseArgs(args)
+        B.getReadlen()
+    elif cmd == "bamstats.py":
+        B = BAMflagAnalyzer()
+        B.parseArgs(args)
+        B.run()
+
+

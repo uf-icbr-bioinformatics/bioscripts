@@ -423,12 +423,13 @@ a single column of values from the ID field."""
                     g = Gene(geneID, row[5], row[6])
                     for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
                         setattr(g, pair[0], pair[1])
-                    for trow in self.dbconn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (geneID,)):
+                    for trow in self.dbconn.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend, canonical FROM Transcripts WHERE parentID=?", (geneID,)):
                         tid = trow[0]
                         tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                         tr.exons = []
                         for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                             setattr(tr, pair[0], pair[1])
+                        tr.canonical = (trow[10] == 'Y')
                         for erow in self.dbconn.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                             tr.addExon(erow[0], erow[1])
                         g.addTranscript(tr)
@@ -457,15 +458,21 @@ to the gene's (or transcript's) TSS.
                 'chrom': chrom,
                 'start': start,
                 'end': end,
-                'fstart': "txstart" if transcripts else "start",
-                'fend': "txend" if transcripts else "end",
+                'fstart': "start",
+                'fend': "end",
                 'biotype': "AND biotype='{}' ".format(biotype) if biotype else "",
                 'canon': "AND canonical='Y' " if (transcripts and canonical) else ""}
+        if transcripts:
+            args['fstart'] = 'txstart'
+            args['fend'] = 'txend'
+        elif tss:
+            args['fstart'] = 'tss'
+            args['fend'] = 'tss'
 
         with self:
             query0 = "SELECT ID, {fstart}, {fend} FROM {table} WHERE chrom='{chrom}' AND {fstart} <= {start} AND {fend} >= {end} {biotype} {canon} ORDER BY {fstart} DESC LIMIT 1;".format(**args) # containing
-            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} <= {start} {biotype} {canon} ORDER BY {fend} DESC LIMIT 1;".format(**args) # upstream
-            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} >= {end} {biotype} {canon} ORDER BY {fstart} LIMIT 1;".format(**args) # downstream
+            query1 = "SELECT ID, {fend}   FROM {table} WHERE chrom='{chrom}' AND {fend} <= {start} {biotype} {canon} ORDER BY {fend} DESC LIMIT 1;".format(**args) # gene is upstream of region
+            query2 = "SELECT ID, {fstart} FROM {table} WHERE chrom='{chrom}' AND {fstart} >= {end} {biotype} {canon} ORDER BY {fstart} LIMIT 1;".format(**args) # gene is downstream of region
             r0 = self.dbconn.execute(query0).fetchone()
             if r0:
                 g0 = r0[0]
@@ -474,32 +481,34 @@ to the gene's (or transcript's) TSS.
                 d1 = start - p1
                 d2 = p2 - end
                 if d1 < d2:
-                    return (g0, -d1)
+                    return (g0, d1)
                 else:
-                    return (g0, d2)
+                    return (g0, -d2)
 
             r1 = self.dbconn.execute(query1).fetchone()
             if r1:
                 g1 = r1[0]
                 p1 = r1[1]
                 d1 = start - p1
+                # print (r1, d1)
             r2 = self.dbconn.execute(query2).fetchone()
             if r2:
                 g2 = r2[0]
                 p2 = r2[1]
                 d2 = p2 - end
+                # print (r2, d2)
             if p1 == 0 and p2 == 0: # No results?? This should not happen...
                 return (None, 0)
             elif p1 == 0:           # No upstream, we only have downstream
-                return (g2, d2)
+                return (g2, -d2)
             elif p2 == 0:           # No downstream, we only have upstream
-                return (g1, start - p1)
+                return (g1, d1)
             else:
                 #print (d1, d2)
                 if d1 < d2:         # We have both, but upstream is closer
-                    return (g1, -d1)
+                    return (g1, d1)
                 else:
-                    return (g2, d2)
+                    return (g2, -d2)
 
     def getGeneInfo(self, geneid, query):
         with self:
@@ -521,6 +530,7 @@ class Transcript():
     cdsstart = None
     cdsend = None
     strand = None
+    canonical = False
     exons = []
     smallrects = []
     largerects = []
@@ -607,9 +617,15 @@ smallrects and largerects lists."""
 
     def posInExon(self, pos):
         """Return True if position `pos' is in one of the exons of this transcript."""
+        nexons = len(self.exons) + 1
+        ne = 1
         for e in self.exons:
             if e[0] <= pos <= e[1]:
-                return True
+                if self.strand == 1:
+                    return ne
+                else:
+                    return nexons - ne
+            ne += 1
         return False
 
     def positionMatch(self, pos, mode, distance):
@@ -647,11 +663,12 @@ Possible return values are 'u' (up to `distance' bp upstream of the transcript),
 (up to `distance' bp downstream of the transcript), 'E' (in a coding exon), 'e' (in a
 non-coding exon), 'i' (in an intron)."""
         if self.txstart <= pos <= self.txend:
-            if self.posInExon(pos):
+            ne = self.posInExon(pos)
+            if ne:
                 if self.cdsstart <= pos <= self.cdsend:
-                    return 'E'
+                    return 'E' + str(ne)
                 else:
-                    return 'e'
+                    return 'e' + str(ne)
             return 'i'
         elif self.strand == 1:
             if self.txstart - updistance <= pos < self.txstart:
@@ -1126,11 +1143,12 @@ class DBloader(GeneLoader):
                     for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
                         setattr(g, pair[0], pair[1])
                     self.gl.add(g, g.chrom)
-                    for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend FROM Transcripts WHERE parentID=?", (gid,)):
+                    for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend, canonical FROM Transcripts WHERE parentID=?", (gid,)):
                         tid = trow[0]
                         tr = Transcript(tid, trow[4], trow[5], trow[6], trow[7])
                         for pair in zip(['ID', 'name', 'accession', 'enst', 'chrom', 'strand', 'txstart', 'txend', 'cdsstart', 'cdsend'], trow):
                             setattr(tr, pair[0], pair[1])
+                        tr.canonical = (trow[10] == 'Y')
                         for erow in ecur.execute("SELECT start, end FROM Exons WHERE ID=? ORDER BY idx", (tid,)):
                             tr.addExon(erow[0], erow[1])
                         g.addTranscript(tr)
@@ -1151,11 +1169,11 @@ def initializeDB(filename):
     conn = sql.connect(filename)
     try:
         conn.execute("DROP TABLE IF EXISTS Genes;")
-        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int, canonical varchar);")
+        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int, canonical varchar, tss int default null);")
         for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
             conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Transcripts;")
-        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int, canonical char(1) default 'N');")
+        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int, canonical char(1) default 'N', tss int default null);")
         for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
             conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Exons;")

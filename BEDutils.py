@@ -79,7 +79,7 @@ class BEDreader():
         if jump:
             self.jumpTo(jump)
         elif header:
-            self.next()
+            self.reader.next()
         self.init()
 
     def __iter__(self):
@@ -312,7 +312,7 @@ def makeRegion(chrom, start, end, name=None):
 class BEDgrep():
     regions = []
     filenames = []
-
+    skipHeader = False
     showRegions = False
     showLineNumbers = False
 
@@ -346,6 +346,8 @@ class BEDgrep():
                 self.showRegions = True
             elif a == '-n':
                 self.showLineNumbers = True
+            elif a == "-s":
+                self.skipHeader = True
             else:
                 spec = parseSpec(a)
                 if spec:
@@ -357,7 +359,7 @@ class BEDgrep():
                 sys.stderr.write(str(r) + "\n")
     
     def grepOne(self, filename):
-        B = BEDreader(filename)
+        B = BEDreader(filename, header=self.skipHeader)
         ln = 0
         for line in B:
             ln += 1
@@ -389,9 +391,22 @@ class BEDreduce():
     filename = ""
     prob = 1.0
 
-    def __init__(self, filename, prob):
-        self.filename = filename
-        self.prob = prob
+    def parseArgs(self, args):
+        if len(args) >= 2:
+            self.filename = args[0]
+            self.prob = float(args[1])
+            return True
+        else:
+            return False
+
+    def usage(self):
+        sys.stdout.write("""Usage: bedreduce.py bedfile prob
+
+This script reads a BED file `bedfile' and outputs each one of its rows
+with probability `prob' (a number between 0 and 1). Both argument are 
+required. Output is written to standard output.
+
+""")
 
     def run(self):
         nin = 0
@@ -410,25 +425,29 @@ def run_bedindex():
     BI = BEDindexer(sys.argv[1])
     BI.bedindex()
 
-def run_bedgrep():
+def run_bedgrep(args):
     BG = BEDgrep()
-    BG.parseArgs(sys.argv[1:])
+    BG.parseArgs(args)
     if BG.regions and BG.filenames:
         BG.grepAll()
 
-def run_bedreduce():
-    BR = BEDreduce(sys.argv[1], float(sys.argv[2]))
-    BR.run()
+def run_bedreduce(args):
+    BR = BEDreduce()
+    if BR.parseArgs(args):
+        BR.run()
+    else:
+        BR.usage()
                    
 if __name__ == "__main__":
     cmd = os.path.split(sys.argv[0])[1]
+    args = sys.argv[1:]
     if cmd == "bedindex.py":
         run_bedindex()
     elif cmd == "bedgrep.py":
-        run_bedgrep()
+        run_bedgrep(args)
     elif cmd == "bedreduce.py":
-        run_bedreduce()
+        run_bedreduce(args)
     else:
-        sys.stderr.write("Please call this script as bedindex.py or bedgrep.py.\n")
+        sys.stderr.write("Please call this script as bedindex.py, bedreduce.py, or bedgrep.py.\n")
         
         
