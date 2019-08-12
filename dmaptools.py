@@ -5,7 +5,7 @@ import csv
 import numpy as np
 import scipy.stats
 
-from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim
+from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt
 
 import Script
 
@@ -206,6 +206,7 @@ Options:
  -o outfile   | Write output to `outfile' instead of standard output.
  -c targetcol | Specify column containing values to be merged (default: {}).
  -x missing   | Value to use for missing elements (default: {}).
+ -s           | Skip first row in each input file (default: False).
 
 """.format(CMERGE.targetcol, CMERGE.missing))
 
@@ -338,8 +339,9 @@ class ColMerger():
     chroms = []                 # List of chromosomes seen
     reclists = {}               # Dictionary of records seen (by chromosome)
     missing = "NA"              # Value to use for missing data
+    skiphdr = False
 
-    def __init__(self, filenames, target):
+    def __init__(self, filenames, target, skiphdr=False):
         self.filenames = filenames
         self.colnames = [ self.cleanFilename(f) for f in filenames ]
         self.nsources = len(filenames)
@@ -347,6 +349,7 @@ class ColMerger():
         self.chroms = []
         self.recids = []
         self.records = {}
+        self.skiphdr = skiphdr
 
     def cleanFilename(self, f):
         """Move this somewhere else..."""
@@ -361,6 +364,8 @@ class ColMerger():
         """Parse source number `idx'."""
         sys.stderr.write("Parsing `{}'... ".format(self.filenames[idx]))
         with open(self.filenames[idx], "r") as f:
+            if self.skiphdr:
+                f.readline()
             for line in f:
                 if len(line) > 0 and line[0] != '#':
                     parsed = line.rstrip("\r\n").split("\t")
@@ -1077,13 +1082,14 @@ class CMERGE():
     targetcol = 3
     outfile = None
     missing = "NA"
-                         
+    skiphdr = False
+
     def __init__(self, args):
         self.filenames = []
         next = ""
         for a in args:
             if next == '-c':
-                self.targetcol = P.toInt(a) + 1
+                self.targetcol = P.toInt(a) - 1
                 next = ""
             elif next == '-o':
                 self.outfile = a
@@ -1093,13 +1099,15 @@ class CMERGE():
                 next = ""
             elif a in ['-c', '-o', '-x']:
                 next = a
+            elif a == '-s':
+                self.skiphdr = True
             else:
                 self.filenames.append(P.isFile(a))
         if len(self.filenames) == 0:
             P.errmsg(P.NOFILE)
 
     def run(self):
-        self.colmerger = ColMerger(self.filenames, self.targetcol)
+        self.colmerger = ColMerger(self.filenames, self.targetcol, self.skiphdr)
         self.colmerger.parseAllSources()
         if self.outfile:
             sys.stderr.write("Writing merged file to {}\n".format(self.outfile))
@@ -1477,8 +1485,99 @@ class DIFF():
             if line[0] == chrom:
                 return line
                 
+### Report average methylation rates by chromosome
 
-### window-based DMR analysis:
+class BYCHROM():
+    """Generate a table of average methylation rate by chromosome in each sample."""
+    bedfiles = []
+    labels = []
+    nsamples = 0
+    chroms = []
+    data = {}
+    outfile = "/dev/stdout"
+
+    def __init__(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif prev == "-l":
+                self.labels = a.split(",")
+                prev = ""
+            elif a in ["-o", "-l"]:
+                prev = a
+            else:
+                self.bedfiles.append(a)
+        self.nsamples = len(self.bedfiles)
+        if not self.labels:
+            self.labels = [ filenameNoExt(f) for f in self.bedfiles ]
+        self.chroms = []
+        self.data = {}
+
+    def run(self):
+        self.readFirst()
+        i = 1
+        for bed in self.bedfiles[1:]:
+            self.readOther(bed, i)
+            i += 1
+
+        with open(self.outfile, "w") as out:
+            out.write("#Chrom\t" + "\t".join(self.labels) + "\n")
+            for ch in self.chroms:
+                cdata = self.data[ch]
+                out.write(ch + "\t" + "\t".join([str(x) for x in cdata]) + "\n")
+
+    def readFirst(self):
+        chrom = ""
+        nr = 0
+        nc = 0
+        sys.stderr.write("Parsing {}... ".format(self.bedfiles[0]))
+        with open(self.bedfiles[0], "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                this = line[0]
+                if this != chrom: # new chromosome?
+                    if chrom:
+                        # sys.stderr.write("Creating cdata for {}\n".format(chrom))
+                        cdata = [0.0]*self.nsamples
+                        cdata[0] = float(nc)/nr
+                        self.data[chrom] = cdata
+                        nr = 0
+                        nc = 0
+                    self.chroms.append(this)
+                    chrom = this
+                nr += int(line[4])
+                nc += int(line[5])
+            cdata = [0.0]*self.nsamples
+            cdata[0] = float(nc)/nr
+            self.data[chrom] = cdata
+        sys.stderr.write("done.\n")
+
+    def readOther(self, filename, i):
+        chrom = ""
+        nr = 0
+        nc = 0
+        sys.stderr.write("Parsing {}... ".format(filename))
+        with open(filename, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                this = line[0]
+                if this != chrom: # new chromosome?
+                    if chrom:
+                        # sys.stderr.write("Creating cdata for {}\n".format(chrom))
+                        cdata = self.data[chrom]
+                        cdata[i] = float(nc)/nr
+                        nr = 0
+                        nc = 0
+                    chrom = this
+                nr += int(line[4])
+                nc += int(line[5])
+            cdata = self.data[chrom]
+            cdata[i] = float(nc)/nr
+        sys.stderr.write("done.\n")
+
+## window-based DMR analysis:
 ### Params:
 ### window size
 ### min number of sites in window
@@ -1516,7 +1615,8 @@ CLASSES = {'merge': Merger,
            'cmerge': CMERGE,
            'regavg': REGAVG,
            'corr': CORR,
-           'dodmeth': DIFF}
+           'dodmeth': DIFF,
+           'bychr': BYCHROM}
 
 def allCommands():
     global CLASSES

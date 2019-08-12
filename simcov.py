@@ -219,19 +219,20 @@ Options:
   -sn N | Base name for reads (default: {}).
   -nr R | Number of reads (default: {}).
   -rl L | Read length (default: {}).
-  -i  I | Average insert size (default: {})
-  -is S | Standard deviation of insert size (default: {}) 
-  -e  E | Set sequencing error rate to E (default: {})
-  -qs S | Average quality at first base (default: {})
-  -qe E | Average quality at last base (default: {})
-  -qv V | Quality standard deviation at last base (default: {})
-  -o  O | Use O as base name for output files (default: {})
+  -i  I | Average insert size (default: {}).
+  -is S | Standard deviation of insert size (default: {}).
+  -e  E | Set sequencing error rate to E (default: {}).
+  -qs S | Average quality at first base (default: {}).
+  -qe E | Average quality at last base (default: {}).
+  -qv V | Quality standard deviation at last base (default: {}).
+  -o  O | Use O as base name for output files (default: {}).
   -p    | Enable paired-end mode.
   -s P  | Simulate presence of P SNPs.
+  -so S | Write SNPs to this file (default: {}).
 
 The value for -nr can be followed by G (for billion) or M (for million).
 
-""".format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.insertSize, SimReads.insertStdev, SimReads.errRate, SimReads.qstart, SimReads.qend, SimReads.qvend, SimReads.outfile))
+""".format(SimReads.seqname, SimReads.nreads, SimReads.readlen, SimReads.insertSize, SimReads.insertStdev, SimReads.errRate, SimReads.qstart, SimReads.qend, SimReads.qvend, SimReads.outfile, SimReads.snpfile))
 
 def usage3():
     sys.stdout.write("""simseq.py - Generate random sequence.
@@ -390,7 +391,7 @@ class SimReads(Script):
     filename = None
     outfile = "reads"
     outfile2 = None
-    snpfile = None
+    snpfile = "snps.csv"
 
     fpstart = 0
     fpend = 0
@@ -502,9 +503,8 @@ class SimReads(Script):
                 n += 1
                 if n == self.nsnps:
                     break
-        snpsfile = "snps.csv"
-        sys.stderr.write("Writing SNPs to file {}\n".format(snpsfile))
-        self.writeSNPs(snpsfile)
+        sys.stderr.write("Writing SNPs to file {}\n".format(self.snpfile))
+        self.writeSNPs(self.snpfile)
 
     def fpToPos(self, fp):
         nrows = (fp - self.fpstart) / self.linewidth # exploit integer division
@@ -607,8 +607,6 @@ class SimReads(Script):
         self.getBounds()
         self.initQuality()
         self.initSNPs()
-        if self.snpfile:
-            self.writeSNPs(self.snpfile)
         if self.paired:
             self.simPairedEnd()
         else:

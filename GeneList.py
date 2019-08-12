@@ -7,6 +7,27 @@ import sqlite3 as sql
 
 import Utils
 
+## DB Utilities
+
+def selectValue(conn, query, *args):
+    r = conn.execute(query.format(*args))
+    v = r.fetchone()
+    if v:
+        return v[0]
+    else:
+        return None
+
+def selectColumn(conn, query, *args):
+    result = []
+    r = conn.execute(query.format(*args))
+    while True:
+        v = r.fetchone()
+        if v:
+            result.append(v[0])
+        else:
+            break
+    return result
+
 def parseStartEnd(s):
     """Parse a range specification in Genbank format. It can contain complement and join operations."""
     cl = len('complement')
@@ -74,8 +95,40 @@ class Genelist():
                     n += 1
                 sys.stderr.write("{} genes written.\n".format(n))
                 tot += n
+            self.setTSS(conn)
+            self.setCanonical(conn)
+            self.setCounts(conn)
             conn.execute("INSERT INTO Source (filename) values (?);", (self.source,))
         return tot
+
+    def setTSS(self, conn):
+        sys.stderr.write("Setting TSS...\n")
+        conn.execute("UPDATE Genes SET tss=start WHERE strand='1';")
+        conn.execute("UPDATE Genes SET tss=end WHERE strand='-1';")
+        conn.execute("UPDATE Transcripts SET tss=txstart WHERE strand='1';")
+        conn.execute("UPDATE Transcripts SET tss=txend WHERE strand='-1';")
+
+    def setCanonical(self, conn):
+        sys.stderr.write("Setting Canonical...\n")
+        c = conn.cursor()
+        for r in conn.execute("SELECT ID FROM Genes;"):
+            gid = r[0]
+            maxtr = 0
+            best  = ""
+            for tr in c.execute("SELECT ID, txstart, txend FROM Transcripts WHERE parentID=?;", (gid,)):
+                m = int(tr[2]) - int(tr[1])
+                if m > maxtr:
+                    maxtr = m
+                    best = tr[0]
+            c.execute("UPDATE Genes SET canonical=? WHERE ID=?;", (best, gid))
+            c.execute("UPDATE Transcripts SET canonical='Y' WHERE ID=?;", (best,))
+
+    def setCounts(self, conn):
+        sys.stderr.write("Updating Counts...\n")
+        ngenes = selectValue(conn, "SELECT count(*) from Genes;")
+        ntrans = selectValue(conn, "SELECT count(*) from Transcripts;")
+        nexons = selectValue(conn, "SELECT count(*) from Exons;")
+        conn.execute("INSERT INTO Counts (ngenes, ntranscripts, nexons) VALUES (?, ?, ?);", (ngenes, ntrans, nexons))
 
     def getGenesTable(self):
         table = {}
@@ -749,6 +802,7 @@ class Gene():
     geneid = ""
     ensg = ""
     biotype = ""
+    description = ""
     chrom = ""
     strand = ""
     start = None                # leftmost txstart
@@ -865,6 +919,8 @@ class GeneLoader():
         self.gl = Genelist()
 
     def validateChrom(self, chrom):
+        if chrom.startswith("scaff"):
+            return chrom
         if chrom.find("_") > 0:
             return False
         if chrom.find("random") > 0:
@@ -1137,10 +1193,10 @@ class DBloader(GeneLoader):
                 gcur = self.conn.cursor()
                 tcur = self.conn.cursor()
                 ecur = self.conn.cursor()
-                for row in gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end FROM Genes"):
+                for row in gcur.execute("SELECT ID, name, geneid, ensg, biotype, chrom, strand, start, end, description FROM Genes"):
                     gid = row[0]
                     g = Gene(gid, row[5], row[6])
-                    for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end'], row):
+                    for pair in zip(['ID', 'name', 'geneid', 'ensg', 'biotype', 'chrom', 'strand', 'start', 'end', 'description'], row):
                         setattr(g, pair[0], pair[1])
                     self.gl.add(g, g.chrom)
                     for trow in tcur.execute("SELECT ID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend, canonical FROM Transcripts WHERE parentID=?", (gid,)):
@@ -1155,10 +1211,9 @@ class DBloader(GeneLoader):
             else:
                 try:
                     ncur = self.conn.execute("SELECT ngenes FROM Counts")
-                    self.gl.ngenes = ncur.fetchone()[0]
                 except:
                     ncur = self.conn.execute("SELECT count(*) FROM Genes") # Fallback method for databases that don't have the Counts table yet...
-                    self.gl.ngenes = ncur.fetchone()[0]
+                self.gl.ngenes = ncur.fetchone()[0]
         finally:
             self.conn.close()
 
@@ -1169,7 +1224,7 @@ def initializeDB(filename):
     conn = sql.connect(filename)
     try:
         conn.execute("DROP TABLE IF EXISTS Genes;")
-        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, chrom varchar, strand int, start int, end int, canonical varchar, tss int default null);")
+        conn.execute("CREATE TABLE Genes (ID varchar primary key, name varchar, geneid varchar, ensg varchar, biotype varchar, description text, chrom varchar, strand int, start int, end int, canonical varchar, tss int default null);")
         for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
             conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Transcripts;")
@@ -1182,6 +1237,7 @@ def initializeDB(filename):
             conn.execute("CREATE INDEX Exon_{} on Exons({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Source;")
         conn.execute("CREATE TABLE Source (filename VARCHAR, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);")
+        conn.execute("DROP TABLE IF EXISTS Counts;")
         conn.execute("CREATE TABLE Counts (ngenes INT DEFAULT 0, ntranscripts INT DEFAULT 0, nexons INT DEFAULT 0);")
     finally:
         conn.close()

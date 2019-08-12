@@ -33,6 +33,7 @@ Combine columns from multiple files into a single data matrix. This command is e
 rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options:
 
  -c name        | Output column 'name' (default: expected_count).
+ -l A,B,C...    | Use supplied labels for columns instead of filenames.
  -e             | Enable ERCC normalization.
  -ercc filename | Load ERCC data from `filename', instead of using defaults.
  -mix a,b,c...  | Specify ERCC mix used by each sample. There should be one
@@ -108,6 +109,7 @@ def linreg(xs, ys):
 
 class MatrixGenerator():
     infiles = []                # List of input files
+    labels = []                 # Labels for data columns (if not specified, uses filename)
     ncols = 0                   # Number of input files
     rows = []                   # List of rows being assembled
     nrows = 0
@@ -126,6 +128,7 @@ class MatrixGenerator():
     filtover = True             # Filter genes over maxfc threshold?
 
     def __init__(self):
+        self.labels = None
         self.rows = []
         self.nrows = 0
         self.erccrows = []
@@ -163,7 +166,10 @@ class MatrixGenerator():
             elif next == '-m':
                 self.minval = float(a)
                 next = ""
-            elif a in ['-ercc', '-mix', '-c', '-n', '-f', '-m']:
+            elif next == '-l':
+                self.labels = a.split(",")
+                next = ""
+            elif a in ['-ercc', '-mix', '-c', '-n', '-f', '-m', '-l']:
                 next = a
             elif a == "-u":
                 self.filtover = False
@@ -298,7 +304,10 @@ for genes/transcripts and ERCC controls are stored separately."""
         nfiltered1 = 0
         nfiltered2 = 0
 
-        sys.stdout.write("\t" + "\t".join([ '"' + f + '"' for f in self.infiles]) + "\n")
+        if self.labels:
+            sys.stdout.write("\t" + "\t".join(self.labels) + "\n")
+        else:
+            sys.stdout.write("\t" + "\t".join([ '"' + f + '"' for f in self.infiles]) + "\n")
         for r in self.rows:
             if self.minval:
                 #if min(r[1:]) < self.minval:
@@ -530,6 +539,7 @@ the identifier in the first column is in the set `ids'."""
 class ExpMerger():
     filenames = []
     labels = []
+    detectLabels = True
     table = {}
     outfile = None
 
@@ -544,7 +554,11 @@ class ExpMerger():
             if next == '-o':
                 self.outfile = a
                 next = ""
-            elif a == '-o':
+            elif next == '-l':
+                self.labels = a.split(",")
+                self.detectLabels = False
+                next = ""
+            elif a in ['-o', '-l']:
                 next = a
             else:
                 self.filenames.append(S.isFile(a))
@@ -554,14 +568,15 @@ class ExpMerger():
     def readOneFile(self, filename):
         sys.stderr.write("Reading {}... ".format(filename))
         with open(filename, "r") as f:
-            hdr = Utils.parseLine(f.readline())
+            c = csv.reader(f, delimiter='\t')
+            hdr = c.next()
             hdr = [ h.strip('"') for h in hdr ]
             ncols = len(hdr)
-            for h in hdr[1:]:
-                if h not in self.labels:
-                    self.labels.append(h)
-            for line in f:
-                fields = Utils.parseLine(line)
+            if self.detectLabels:
+                for h in hdr[1:]:
+                    if h not in self.labels:
+                        self.labels.append(h)
+            for fields in c:
                 g = fields[0]
                 if g in self.table:
                     gdata = self.table[g]

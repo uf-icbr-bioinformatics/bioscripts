@@ -35,7 +35,7 @@ will be equal to the second one."""
     else:
         return None
 
-def readRegions(atfile):
+def readRegions(atfile, payload=None):
     """Read regions from a file indicated as @filename:col. Lines that don't have
 the required number of columns or that contains start and end positions that are
 not numbers are silently ignored."""
@@ -49,7 +49,10 @@ not numbers are silently ignored."""
         if line[0] != afr.ignorechar:
             line = line.rstrip("\r\n").split("\t")
             try:
-                regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
+                if payload:
+                    regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2]), line[payload]) )
+                else:
+                    regs.append( (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2])) )
             except ValueError:
                 pass
             except IndexError:
@@ -103,8 +106,9 @@ class Classify(Script.Command):
         self.streams = {'u': None, 'd': None, 'E': None, 'e': None, 'i': None, 'o': None, 's': None}
 
     def add(self, key):
-        self.totals['n'] += 1
-        self.totals[key] += 1
+        if key in self.totals:
+            self.totals['n'] += 1
+            self.totals[key] += 1
 
     def report(self, stream):
         if stream == 's':
@@ -144,10 +148,11 @@ class Classify(Script.Command):
             self.streams[rn[1]].close()
 
     def writeLine(self, key, line):
-        self.add(key)
-        stream = self.streams[key]
-        if stream:
-            stream.write("\t".join(line) + "\n")
+        if key in self.streams:
+            self.add(key)
+            stream = self.streams[key]
+            if stream:
+                stream.write("\t".join(line) + "\n")
 
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py classify [options] chrom:position ... 
@@ -169,6 +174,7 @@ Options:
   -ca    | Show classification for canonical transcripts only (requires -t).
   -X     | Do not display regions that have no classification.
   -s     | Summary classification only (number and percentage of region classes).
+  -c C   | Add column C from regions file to output.
 
 """.format(P.updistance, P.updistance, P.dndistance))
     
@@ -178,7 +184,7 @@ Options:
         regions = []
         for a in P.args:
             if a[0] == '@':
-                regs = readRegions(a)
+                regs = readRegions(a, payload=P.idcol)
                 for r in regs:
                     regions.append(r)
             else:
@@ -187,10 +193,14 @@ Options:
         sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
 
         with Utils.Output(P.outfile) as out:
-            if P.mode == "t":
-                out.write("Chrom\tStart\tEnd\tGene\tID\tAccession\tClass\tExNum\n")
-            elif P.mode == "g":
-                out.write("Chrom\tStart\tEnd\tGene\tID\tClass\tExNum\n")
+            if P.mode in "tg":
+                if P.mode == "t":
+                    hdr = "Chrom\tStart\tEnd\tGene\tID\tAccession\tClass\tExNum"
+                elif P.mode == "g":
+                    hdr = "Chrom\tStart\tEnd\tGene\tID\tClass\tExNum"
+                if P.idcol:
+                    hdr += "\t" + P.idname
+                out.write(hdr + "\n")
 
             for reg in regions:
                 if type(reg).__name__ == 'str':
@@ -213,8 +223,12 @@ Options:
                                     exn = c[1:]
                                     c = c[0]
                                 else:
-                                    exn = ""
-                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c, exn))
+                                    exn = "-"
+                                if len(reg) == 4:
+                                    extra = "\t" + reg[3]
+                                else:
+                                    extra = ""
+                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c, exn, extra))
                 elif P.mode == "g":
                     for g in genes:
                         name = g.name
@@ -228,8 +242,12 @@ Options:
                             exn = c[1:]
                             c = c[0]
                         else:
-                            exn = ""
-                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg[0], start, end, g.name, g.ID, c, exn))
+                            exn = "-"
+                        if len(reg) == 4:
+                            extra = "\t" + reg[3]
+                        else:
+                            extra = ""
+                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg[0], start, end, g.name, g.ID, c, exn, extra))
                 elif P.mode == "s":
                     if len(genes) == 0:
                         self.add('o')
@@ -466,7 +484,7 @@ per the `classify' command, and written to the appropriate output file.
             C.initStreams(afr.filename, header=header, stream=sys.stdout)
             while True:
                 line = afr.readline()
-                if line == '':
+                if not line:
                     afr.close()
                     break
                 reg = (line[afr.col], int(line[afr.col+1]), int(line[afr.col+2]))
@@ -647,7 +665,8 @@ class Prog(Script.Script):
     ovbases = 100               # Number of overlap bases
     addBedFields = False        # If True, add contents of original BED file
     excel = False               # (also used for Classify with a different meaning)
-    idcol = 0                   # Column containing gene id for Annotate
+    idcol = 0                   # Column containing gene id for Annotate (or payload column for Classify)
+    idname = "Extra"            # Header of additional column (for Classify)
     wanted = ['name']           # Wanted field(s) from db for Annotate
     codingOnly = False          # If True (-pc) only look at protein coding genes in Closest
     canonical = False           # If True (-ca) only look at canonical transcript for each gene in Closest or Classify
@@ -693,7 +712,12 @@ class Prog(Script.Script):
                 else:
                     self.errmsg('BADREGION')
             elif next == "-c":
-                self.idcol = self.toInt(a) - 1
+                if ":" in a:
+                    parts = a.split(":")
+                    self.idcol = self.toInt(parts[0]) - 1
+                    self.idname = parts[1]
+                else:
+                    self.idcol = self.toInt(a) - 1
                 next = ""
             elif next == "-w":
                 self.wanted = a.split(",")

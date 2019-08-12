@@ -196,32 +196,37 @@ def safeReadIntFromFile(filename, default=None, maxtries=20, delay=1):
     """Read an integer from the first line of file `filename', using `default' if the
 line does not contain an integer. If the line is empty, wait `delay' seconds and
 retry, up to `maxtries' times."""
+    c = ''
     while True:
-        with open(filename, "r") as f:
-            c = f.readline().rstrip("\n")
-        if c == '':
+        if os.path.isfile(filename):
+            with open(filename, "r") as f:
+                c = f.readline().rstrip("\n")
+        if c:
+            return safeInt(c, default)
+        else:
             maxtries -= 1
             if maxtries == 0:
                 return default
             else:
                 time.sleep(delay)
-        else:
-            return safeInt(c, default)
 
 def safeReadLineFromFile(filename, default=None, maxtries=20, delay=1):
-    """Read and return the first line of file `filename'. If the line is empty, wait `delay' seconds and
-retry, up to `maxtries' times, after which return `default'."""
+    """Read and return the first line of file `filename'. If the file does not exist, or
+the line is empty, wait `delay' seconds and retry, up to `maxtries' times, after which 
+return `default'."""
+    c = ''
     while True:
-        with open(filename, "r") as f:
-            c = f.readline().rstrip("\n")
-        if c == '':
+        if os.path.isfile(filename):
+            with open(filename, "r") as f:
+                c = f.readline().rstrip("\n")
+        if c:
+            return c
+        else:
             maxtries -= 1
             if maxtries == 0:
                 return default
             else:
                 time.sleep(delay)
-        else:
-            return c
 
 def safeRemoveFile(filename):
     if os.path.isfile(filename):
@@ -272,6 +277,9 @@ def filenameNoExt(s):
 def parseLine(line):
     return line.rstrip("\r\n").split("\t")
 
+def parseList(string):
+    return [ s.strip() for s in string.split(",") ]
+
 def fmt(n):
     return "{:,}".format(n)
 
@@ -304,6 +312,9 @@ def DOWN(x):
 
 def plural(x):
     return "" if x == 1 else "s"
+
+def yn(x):
+    return "Y" if x else "N"
 
 def fileToDict(filename, toInt=True, column=1, delimiter='\t'):
     """Read `filename' and return a dictionary having as keys the strings
@@ -397,7 +408,10 @@ class ShellScript():
 
     def __exit__(self, type, value, traceback):
         self.out.close()
-        os.chmod(self.filename, 0o770)
+        try:
+            os.chmod(self.filename, 0o770)
+        except:
+            pass
         
 # Utils
 

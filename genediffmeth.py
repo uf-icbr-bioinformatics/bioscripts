@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import csv
 import Script
 import GeneList
 
@@ -60,6 +61,7 @@ class Params(Script.Script):
     minsites = 1                # minimum number of sites
     classify = False            # If true, run in classify mode (all other options are ignored)
     ignore = False              # If set to a float, values read from file equal to this will be ignored (used for -mat files).
+    showSites = True            # If True, print site positions at the end of each line (disable with -n).
 
     # Runtime
     genelist = []               # All genes
@@ -103,6 +105,8 @@ class Params(Script.Script):
                 next = a
             elif a == '-s':
                 self.diffsorted = True
+            elif a == '-n':
+                self.showSites = False
             elif a == '-c':
                 self.classify = True
             elif self.methfile == None:
@@ -158,11 +162,11 @@ Min sites: {}
         else:
             out = sys.stdout
         try:
-            out.write("# Gene\tChrom\tStart\tEnd\tStrand\tSites\t{}\n".format(outColName(self.mode)))
+            out.write("# GeneID\tGene\tDescription\tChrom\tStart\tEnd\tStrand\tSites\t{}\n".format(outColName(self.mode)))
             with open(self.methfile, "r") as f:
-                f.readline()            # skip header
-                for line in f:
-                    parsed = line.rstrip("\r\n").split("\t")
+                c = csv.reader(f, delimiter='\t')
+                c.next()            # skip header
+                for parsed in c:
                     chrom = parsed[chrcol]
                     if chrom != thischrom:
                         if thischrom != "":
@@ -207,7 +211,7 @@ Min sites: {}
             maxdmc = 0.0
             mindmc = 0.0
             balance = 0
-            datarow = [g.name, g.chrom, grange[0], grange[1], g.strand, 0, 0]
+            datarow = [g.ID, g.name, g.description, g.chrom, grange[0], grange[1], g.strand, 0, 0]
             genesites = []
             for x in data:
                 pos = x[0]
@@ -215,13 +219,14 @@ Min sites: {}
                     break            # Too far...
                 if pos >= grange[0]: # we're inside
                     if mode == 'none':
-                        datarow[2] = pos
-                        datarow[3] = pos+1
-                        datarow[5] = 1
-                        datarow[6] = x[1]
+                        datarow[4] = pos
+                        datarow[5] = pos+1
+                        datarow[7] = 1
+                        datarow[8] = x[1]
                         out.write("\t".join([str(x) for x in datarow]) + "\n")
                     else:
-                        genesites.append(pos)
+                        if self.showSites:
+                            genesites.append(pos)
                         v = x[1]
                         nsites += 1
                         totdmc += v
@@ -251,8 +256,8 @@ Min sites: {}
                     score = balance
                 elif mode == 'abs':
                     score = totabs / nsites
-                datarow[5] = nsites
-                datarow[6] = score
+                datarow[7] = nsites
+                datarow[8] = score
                 if self.diffsorted:
                     self.results.append(datarow + genesites)
                 else:
@@ -261,7 +266,7 @@ Min sites: {}
         return nwritten
 
     def writeSortedGenes(self, out):
-        self.results.sort(key=lambda x: x[6], reverse=True)
+        self.results.sort(key=lambda x: x[7], reverse=True)
         for datarow in self.results:
             out.write("\t".join([str(x) for x in datarow]) + "\n")
 
@@ -320,7 +325,8 @@ def usage(what=None):
         sys.stderr.write("""This page shows the regions analyzed around a transcript when using
 each one of the possible values for -r (b, B, p, u, d). The first example transcript is on the
 top strand, the second one on the bottom strand. -dup is set to the equivalent of four characters
-and -dn to the equivalent of two characters.
+and -ddn to the equivalent of two characters.
+
 
         ------[>>>>>>>>>>>>>>>>>>>>>>>>>>]------
               |bbbbbbbbbbbbbbbbbbbbbbbbbb|
@@ -329,12 +335,13 @@ and -dn to the equivalent of two characters.
           uuuu|uu                        |
               |                      dddd|dd
 
+
         ------[<<<<<<<<<<<<<<<<<<<<<<<<<<]------
               |bbbbbbbbbbbbbbbbbbbbbbbbbb|
             BB|BBBBBBBBBBBBBBBBBBBBBBBBBB|BBBB
               |                          |pppp
               |                        uu|uuuu
-          dddd|dd                        |
+            dd|dddd                      |
 
 """)
     else:
@@ -380,6 +387,8 @@ Options:
   -x col    | Specify column containing differential methylation values.
 
   -l nsites | Limit analysis to regions containing at least `nsites' sites. Default is 1.
+
+  -n        | If specified, do not print site positions at the end of each line.
 
   -s        | If specified, output will be sorted by differential methylation (high to
               low) instead of the default order (chromosome, gene position).

@@ -209,17 +209,19 @@ names."""
                 ename = fields[namecol]
                 ercc = self.find(ename)
                 if ercc:
-                    good = True
-                    if filtercol:
-                        if float(fields[filtercol]) < filtervalue:
-                            good = False
-                    if good:
-                        result.append([ename, getattr(ercc, attribute), float(fields[column])])
+                    if filtercol and (float(fields[filtercol]) < filtervalue):
+                        continue
+                    result.append([ename, getattr(ercc, attribute), float(fields[column])])
         return result
 
 if __name__ == "__main__":
     args = sys.argv[1:]
 
     DB = ERCCdb()
-    DB.toDelimited(sys.stdout, args)
-        
+    cmd = args[0]
+    if cmd == "dump":
+        DB.toDelimited(sys.stdout, args[1:])
+    elif cmd == "table":
+        data = DB.makeERCCtable(args[1], args[2], attribute='concentration1')
+        for line in data:
+            sys.stdout.write("\t".join([str(v) for v in line]) + "\n")

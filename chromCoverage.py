@@ -220,6 +220,7 @@ if __name__=="__main__":
     try:
         if C.outfile:
             C.out = open(C.outfile, "w")
+            Tot.out = C.out
         if filenames == []:
             C.doCovFile(sys.stdin, Tot)
         elif filenames[0].endswith(".bam"):

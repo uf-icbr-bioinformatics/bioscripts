@@ -16,7 +16,8 @@ class Command():
 class Script():
     name = ""
     version = "1.0"
-    copyright = "(c) 2017, A. Riva, DiBiG, ICBR Bioinformatics, University of Florida"
+    copyright = """(c) 2018, A. Riva, ICBR Bioinformatics Core, University of Florida
+          L. Boatwright, ICBR Bioinformatics Core, University of Florida"""
     usagefun = None
     errorNames = {}
     errorMsg = {}
@@ -24,7 +25,7 @@ class Script():
     _commands = {}
     _commandNames = []
 
-    def __init__(self, name, version="1.0", usage=None, errors=[]):
+    def __init__(self, name, version="1.0", usage=None, errors=[], copyright=None):
         """Errors should be a list of tuples: (code, name, message)."""
         self.name = name
         self.version = version
@@ -38,8 +39,8 @@ class Script():
                            ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
         self.errorCode = 100
         self.defineErrors(errors)
-        self.copyright = """(c) 2018, A. Riva, ICBR Bioinformatics Core, University of Florida
-          L. Boatwright, ICBR Bioinformatics Core, University of Florida"""
+        if copyright:
+            self.copyright = copyright
         self.init()
 
     def init(self):
@@ -135,13 +136,15 @@ and the following one (if any). Otherwise, returns None."""
         else:
             return v
         
-    def isFile(self, x):
+    def isFile(self, x, error=True):
         if x == "-":
             return x
         if os.path.isfile(x):
             return x
-        else:
+        elif error:
             self.errmsg(self.BADFILE, x)
+        else:
+            return False
 
     def addCommand(self, className):
         name = className._cmd
