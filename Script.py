@@ -170,6 +170,10 @@ and the following one (if any). Otherwise, returns None."""
         self._commandNames.append(name)
         self._commandNames.sort()
 
+    def addCommands(self, classNames):
+        for cn in classNames:
+            self.addCommand(cn)
+        
     def findCommand(self, cmd):
         if cmd in self._commands:
             return self._commands[cmd]

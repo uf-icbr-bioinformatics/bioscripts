@@ -1807,25 +1807,14 @@ class Prog(Script.Script):
         cl = self.findCommand(cmd)
         if cl:
             M = cl()
-            if M.parseArgs():
+            if M.parseArgs(args[1:]):
                 M.run()
         else:
             self.usage()
         
 P = Prog("dmaptools.py", version="1.0",
          errors=[('NOCMD', 'Missing command', 'The first argument should be a command name')])
-P.addCommand(Merger)
-P.addCommand(Averager)
-P.addCommand(Histcomparer)
-P.addCommand(DMR)
-P.addCommand(DMR2)
-P.addCommand(WINAVG)
-P.addCommand(WINMAT)
-P.addCommand(CMERGE)
-P.addCommand(REGAVG)
-P.addCommand(CORR)
-P.addCommand(DIFF)
-P.addCommand(BYCHROM)
+P.addCommands([Merger, Averager, Histcomparer, DMR, DMR2, WINAVG, WINMAT, CMERGE, REGAVG, CORR, DIFF, BYCHROM])
 
 cmdlist = ""
 for cmd in P._commandNames:
