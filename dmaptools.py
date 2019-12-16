@@ -9,223 +9,219 @@ from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, re
 
 import Script
 
-# Main
+# COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth"
 
-COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth"
+# def usage(what=None):
+#     if what == None:
+#         allcmd = allCommands()
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-def usage(what=None):
-    if what == None:
-        allcmd = allCommands()
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py command arguments...
 
-Usage: dmaptools.py command arguments...
+# where command is one of: {}
 
-where command is one of: {}
+# """.format(", ".join(allcmd)))
+#         for cmd in allcmd:
+#             cl = CLASSES[cmd]
+#             sys.stderr.write("{} - {}.\n".format(cmd, cl.__doc__))
 
-""".format(", ".join(allcmd)))
-        for cmd in allcmd:
-            cl = CLASSES[cmd]
-            sys.stderr.write("{} - {}.\n".format(cmd, cl.__doc__))
+#         sys.stderr.write("""
+# Use `dmaptools.py -h command' to display usage for `command'.
 
-        sys.stderr.write("""
-Use `dmaptools.py -h command' to display usage for `command'.
+# """)
+#     elif what == 'regavg':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-""")
-    elif what == 'regavg':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py regavg [options] bedfile regionsfile
 
-Usage: dmaptools.py regavg [options] bedfile regionsfile
+# Compute average methylation over a set of regions (e.g. gene transcripts) mapping
+# site positions to a fixed-size vector. File `bedfile' should have at least four
+# columns: chromosome, site start, site end, methylation. File `regionsfile' should 
+# have at least four columns: chromsome, region start, region end, strand (+ or -). 
 
-Compute average methylation over a set of regions (e.g. gene transcripts) mapping
-site positions to a fixed-size vector. File `bedfile' should have at least four
-columns: chromosome, site start, site end, methylation. File `regionsfile' should 
-have at least four columns: chromsome, region start, region end, strand (+ or -). 
+# Output is tab-delimited with three columns: position, average methylation at that 
+# position, moving average at that position (computed over a window extending S 
+# positions in both directions, where S is specified with the -s option).
 
-Output is tab-delimited with three columns: position, average methylation at that 
-position, moving average at that position (computed over a window extending S 
-positions in both directions, where S is specified with the -s option).
+# Options:
 
-Options:
+#   -o O | Write results to file O (default: stdout).
+#   -w W | Map regions to a vector of size W (default: {}).
+#   -m M | Map up/downstream of region to a vector of size M (default: {}).
+#   -s S | Use smooting window of S positions (default: {}).
+#   -u U | Size of up/downstream regions in bp in non-scaled mode (default: {}).
+#   -f   | Do not scale up/downstream regions (in this case, -u is used to specify
+#          size of up/downstream regions in bp).
 
-  -o O | Write results to file O (default: stdout).
-  -w W | Map regions to a vector of size W (default: {}).
-  -m M | Map up/downstream of region to a vector of size M (default: {}).
-  -s S | Use smooting window of S positions (default: {}).
-  -u U | Size of up/downstream regions in bp in non-scaled mode (default: {}).
-  -f   | Do not scale up/downstream regions (in this case, -u is used to specify
-         size of up/downstream regions in bp).
+# """.format(REGAVG.vectsize, REGAVG.margsize, REGAVG.winsize, REGAVG.upsizebp))
 
-""".format(REGAVG.vectsize, REGAVG.margsize, REGAVG.winsize, REGAVG.upsizebp))
+#     elif what == 'merge':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-    elif what == 'merge':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py merge mcompfile matfile1 matfile2 [outfile]
 
-Usage: dmaptools.py merge mcompfile matfile1 matfile2 [outfile]
+# Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
+# listed in `mcompfile', containing differentially-methylated C positions. Write
+# the results to standard output or to `outfile' if specified.
 
-Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
-listed in `mcompfile', containing differentially-methylated C positions. Write
-the results to standard output or to `outfile' if specified.
+# """)
+#     elif what == 'avgmeth':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-""")
-    elif what == 'avgmeth':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py avgmeth matfile1 matfile2 [outfile]
 
-Usage: dmaptools.py avgmeth matfile1 matfile2 [outfile]
+# Compute the average global methylation rates for all replicates in `matfile1' and `matfile2'
+# and report them, then test the significance of the difference between the two groups using
+# a two-sample t-test. The output (written to standard output or to `outfile' if specified)
+# has the following format:
 
-Compute the average global methylation rates for all replicates in `matfile1' and `matfile2'
-and report them, then test the significance of the difference between the two groups using
-a two-sample t-test. The output (written to standard output or to `outfile' if specified)
-has the following format:
+# File1: (name of matfile1)
+# Replicates1: (number of replicates in matfile1)
+# MethRates1: (comma-separated average methylation value for each replicate in matfile1)
+# File2: (name of matfile2)
+# Replicates2: (number of replicates in matfile2)
+# MethRates2: (comma-separated average methylation value for each replicate in matfile2)
+# Tstatistics: (T statistics from t-test)
+# P-value: (P-value from t-test)
+# Significant: (Y or N indicating if P-value < 0.01)
 
-File1: (name of matfile1)
-Replicates1: (number of replicates in matfile1)
-MethRates1: (comma-separated average methylation value for each replicate in matfile1)
-File2: (name of matfile2)
-Replicates2: (number of replicates in matfile2)
-MethRates2: (comma-separated average methylation value for each replicate in matfile2)
-Tstatistics: (T statistics from t-test)
-P-value: (P-value from t-test)
-Significant: (Y or N indicating if P-value < 0.01)
+# """)
+#     elif what == 'histmeth':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-""")
-    elif what == 'histmeth':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py histmeth matfile1 matfile2 [outfile]
 
-Usage: dmaptools.py histmeth matfile1 matfile2 [outfile]
+# (more to come)
 
-(more to come)
+# """)
+#     elif what == 'dmr':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-""")
-    elif what == 'dmr':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py dmr [options] testbed ctrlbed
 
-Usage: dmaptools.py dmr [options] testbed ctrlbed
+# This command compares two BED files containing methylation rates for two different conditions, 
+# (test and control respectively) and detects regions of differential methylation (DMRs). The 
+# genome is divided into consecutive windows of `winsize' nucleotides. A window is identified as 
+# a DMR if: it contains at least `minsites1' sites in the test dataset and `minsites2' sites in
+# the control dataset having coverage higher than `mincov'; if the difference between the methylation
+# rates in test and control is higher than `methdiff'; and if the P-value of this difference, 
+# computed using Fisher's exact test, is smaller than `pval'.
 
-This command compares two BED files containing methylation rates for two different conditions, 
-(test and control respectively) and detects regions of differential methylation (DMRs). The 
-genome is divided into consecutive windows of `winsize' nucleotides. A window is identified as 
-a DMR if: it contains at least `minsites1' sites in the test dataset and `minsites2' sites in
-the control dataset having coverage higher than `mincov'; if the difference between the methylation
-rates in test and control is higher than `methdiff'; and if the P-value of this difference, 
-computed using Fisher's exact test, is smaller than `pval'.
+# Consecutive DMRs will be joined if the are separated by not more than `gap' windows. Only DMRs 
+# with a differential methylation in the same direction (ie, both positive or both negative) will
+# be joined, unless the -a option is specified. When regions are joined, the differential methylation
+# value is the average of those of the joined regions (or the average of their absolute values if
+# -a was specified) and the P-value is the highest of those in the joined regions.
 
-Consecutive DMRs will be joined if the are separated by not more than `gap' windows. Only DMRs 
-with a differential methylation in the same direction (ie, both positive or both negative) will
-be joined, unless the -a option is specified. When regions are joined, the differential methylation
-value is the average of those of the joined regions (or the average of their absolute values if
--a was specified) and the P-value is the highest of those in the joined regions.
+# Options:
 
-Options:
+#  -o outfile   | Write output to `outfile' instead of standard output.
+#  -w winsize   | Set window size (default: {}).
+#  -t minsites1 | Minimum number of sites from test in DMR (default: {}).
+#  -s minsites2 | Minimum number of sites from control in DMR (default: {}).
+#  -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
+#  -d methdiff  | Minimum difference of methylation rates (default: {}).
+#  -p pval      | P-value threshold (default: {}).
+#  -g gap       | Maximum gap for DMR joining (default: {}).
+#  -a           | Allow joining of DMRs in different directions.
 
- -o outfile   | Write output to `outfile' instead of standard output.
- -w winsize   | Set window size (default: {}).
- -t minsites1 | Minimum number of sites from test in DMR (default: {}).
- -s minsites2 | Minimum number of sites from control in DMR (default: {}).
- -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
- -d methdiff  | Minimum difference of methylation rates (default: {}).
- -p pval      | P-value threshold (default: {}).
- -g gap       | Maximum gap for DMR joining (default: {}).
- -a           | Allow joining of DMRs in different directions.
+# """.format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
 
-""".format(DMR.winsize, DMR.minsites1, DMR.minsites2, DMR.mincov, DMR.methdiff, DMR.pval, DMR.gap))
+#     elif what == 'dmr2':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-    elif what == 'dmr2':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py dmr2 [options] testbed ctrlbed
 
-Usage: dmaptools.py dmr2 [options] testbed ctrlbed
+# This command compares two BED files containing methylation rates for two different conditions, 
+# (test and control respectively) and detects regions of differential methylation (DMRs). A DMR
+# is defined as a sequence of at least `minsites' consecutive sites having coverage higher than
+# `mincov', and all showing differential methylation in the same direction, over `methdiff'.
 
-This command compares two BED files containing methylation rates for two different conditions, 
-(test and control respectively) and detects regions of differential methylation (DMRs). A DMR
-is defined as a sequence of at least `minsites' consecutive sites having coverage higher than
-`mincov', and all showing differential methylation in the same direction, over `methdiff'.
+# The output file contains chromosome, start, and end position of each DMR, the average diffmeth
+# of all sites in the DMR, and the number of sites.
 
-The output file contains chromosome, start, and end position of each DMR, the average diffmeth
-of all sites in the DMR, and the number of sites.
+# Options:
 
-Options:
+#  -o outfile   | Write output to `outfile' instead of standard output.
+#  -t minsites  | Minimum number of sites from test in DMR (default: {}).
+#  -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
+#  -d methdiff  | Minimum difference of methylation rates (default: {}).
+#  -s maxdist   | Maximum distance between sites in a window (default: {}).
+#  -w minsize   | Minimum size of a DMR (default: {}).
+#  --insig num  | Maximum number of sites below methdiff allowed in DMR (default: {}).
 
- -o outfile   | Write output to `outfile' instead of standard output.
- -t minsites  | Minimum number of sites from test in DMR (default: {}).
- -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
- -d methdiff  | Minimum difference of methylation rates (default: {}).
- -s maxdist   | Maximum distance between sites in a window (default: {}).
- -w minsize   | Minimum size of a DMR (default: {}).
- --insig num  | Maximum number of sites below methdiff allowed in DMR (default: {}).
+# """.format(DMR2writer.minsites, DMR2.mincov, DMR2.methdiff, DMR2writer.maxsitedist, DMR2writer.mindmrsize, DMR2writer.insig_max))
 
-""".format(DMR2writer.minsites, DMR2.mincov, DMR2.methdiff, DMR2writer.maxsitedist, DMR2writer.mindmrsize, DMR2writer.insig_max))
+#     elif what == 'winavg':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-    elif what == 'winavg':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+# Usage: dmaptools.py winavg [options] bedfile
 
-Usage: dmaptools.py winavg [options] bedfile
+# This command generates a BED file containing average metylation in consecutive windows from a BED
+# file containing methylation rates. The input file `bedfile' should be in the format produced by
+# mcall or cscall; in particular the first four columns should contain chromosome, start of site,
+# end of site, site % methylation respectively. The output file will also have four columns: 
+# chromosome, start of window, end of window, average % methylation in window.
 
-This command generates a BED file containing average metylation in consecutive windows from a BED
-file containing methylation rates. The input file `bedfile' should be in the format produced by
-mcall or cscall; in particular the first four columns should contain chromosome, start of site,
-end of site, site % methylation respectively. The output file will also have four columns: 
-chromosome, start of window, end of window, average % methylation in window.
-
-Options:
+# Options:
  
- -o outfile   | Write output to `outfile' instead of standard output.
- -w winsize   | Set window size (default: {}).
- -t minsites  | Minimum number of sites in window (default: {}).
- -c mincov    | Minimum coverage of sites for -t (default: {}).
+#  -o outfile   | Write output to `outfile' instead of standard output.
+#  -w winsize   | Set window size (default: {}).
+#  -t minsites  | Minimum number of sites in window (default: {}).
+#  -c mincov    | Minimum coverage of sites for -t (default: {}).
 
-""".format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
+# """.format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
 
-    elif what == 'winmat':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+#     elif what == 'winmat':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-Usage: dmaptools.py winmat [options] matfile
+# Usage: dmaptools.py winmat [options] matfile
 
-This command generates a BED file containing average metylation in consecutive windows from a -mat
-file.
+# This command generates a BED file containing average metylation in consecutive windows from a -mat
+# file.
 
-Options:
+# Options:
  
- -o outfile   | Write output to `outfile' instead of standard output.
- -w winsize   | Set window size (default: {}).
- -t minsites  | Minimum number of sites in window (default: {}).
+#  -o outfile   | Write output to `outfile' instead of standard output.
+#  -w winsize   | Set window size (default: {}).
+#  -t minsites  | Minimum number of sites in window (default: {}).
 
-""".format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
+# """.format(WINAVG.winsize, WINAVG.minsites, WINAVG.mincov))
     
-    elif what == 'cmerge':
-        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+#     elif what == 'cmerge':
+#         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
-Usage: dmaptools.py cmerge [options] files...
+# Usage: dmaptools.py cmerge [options] files...
 
-This command merges columns from multiple input files into a single output file. The input files
-should have chromosome, start, and end position in the first three columns, and a value associated
-with each region in an additional column (the fourth one by default). For each region in the input
-files, the output file will contain chromosome, start, end, and the target columns from all input
-files in order.
+# This command merges columns from multiple input files into a single output file. The input files
+# should have chromosome, start, and end position in the first three columns, and a value associated
+# with each region in an additional column (the fourth one by default). For each region in the input
+# files, the output file will contain chromosome, start, end, and the target columns from all input
+# files in order.
 
-Options:
+# Options:
  
- -o outfile   | Write output to `outfile' instead of standard output.
- -c targetcol | Specify column containing values to be merged (default: {}).
- -x missing   | Value to use for missing elements (default: {}).
- -s           | Skip first row in each input file (default: False).
+#  -o outfile   | Write output to `outfile' instead of standard output.
+#  -c targetcol | Specify column containing values to be merged (default: {}).
+#  -x missing   | Value to use for missing elements (default: {}).
+#  -s           | Skip first row in each input file (default: False).
 
-""".format(CMERGE.targetcol, CMERGE.missing))
+# """.format(CMERGE.targetcol, CMERGE.missing))
 
-    else:
-        P.usage()
-
-P = Script.Script("dmaptools.py", version="1.0", usage=usage,
-                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: ' + COMMANDS)])
+#     else:
+#         P.usage()
 
 # Merger
 
-class Merger():
+class Merger(Script.Command):
     """report per-replicate methylation values at differentially methylated sites"""
+    _cmd = "merge"
     mcompfile = None
     matfile1 = None
     matfile2 = None
     outfile = None
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         nfiles = 0
         for a in args:
             if nfiles == 0:
@@ -241,6 +237,17 @@ class Merger():
                 self.outfile = a
         if nfiles < 3:
             P.errmsg(P.NOFILE)
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py merge mcompfile matfile1 matfile2 [outfile]
+
+Merge methylation data from two "mat" files `matfile1' and `matfile2' at the sites
+listed in `mcompfile', containing differentially-methylated C positions. Write
+the results to standard output or to `outfile' if specified.
+
+""")
 
     def makeMatMap(self, matfile):
         hdr = []
@@ -406,8 +413,9 @@ class ColMerger():
 ### sample across both conditions. It then compares the two sets of averages using
 ### a two-sample t-test.
 
-class Averager():
+class Averager(Script.Command):
     """report and compare genome-wide methylation levels in two sets of replicates"""
+    _cmd = "avgmeth"
     matfile1 = None
     nreps1 = 0
     matfile2 = None
@@ -415,7 +423,7 @@ class Averager():
     outfile = None
     pval = 0.01
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         next = ""
         for a in args:
             if a in ['-p']:
@@ -430,6 +438,28 @@ class Averager():
             elif self.outfile == None:
                 self.outfile = a
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py avgmeth matfile1 matfile2 [outfile]
+
+Compute the average global methylation rates for all replicates in `matfile1' and `matfile2'
+and report them, then test the significance of the difference between the two groups using
+a two-sample t-test. The output (written to standard output or to `outfile' if specified)
+has the following format:
+
+File1: (name of matfile1)
+Replicates1: (number of replicates in matfile1)
+MethRates1: (comma-separated average methylation value for each replicate in matfile1)
+File2: (name of matfile2)
+Replicates2: (number of replicates in matfile2)
+MethRates2: (comma-separated average methylation value for each replicate in matfile2)
+Tstatistics: (T statistics from t-test)
+P-value: (P-value from t-test)
+Significant: (Y or N indicating if P-value < 0.01)
+
+""")
+                
     def methAvg(self, filename):
         nrows = 0
         sys.stderr.write("Reading {}... ".format(filename))
@@ -489,7 +519,17 @@ class Averager():
 
 class Histcomparer(Averager):
     """compare % methylation rates in two sets of replicates"""
+    _cmd = "histmeth"
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py histmeth matfile1 matfile2 [outfile]
+
+(more to come)
+
+""")
+        
     def methHist(self, filename):
         nrows = 0
         sys.stderr.write("Reading {}... ".format(filename))
@@ -592,8 +632,9 @@ class DMRwriter():
         self.growing.append(data)
         self.nd += 1
 
-class DMR():
+class DMR(Script.Command):
     """detect differentially methylated regions"""
+    _cmd = "dmr"
     winsize = 100
     minsites1 = 0   # Minimum number of sites in test condition
     minsites2 = 4   # Minimum number of sites in control condition
@@ -609,7 +650,7 @@ class DMR():
     jump = False                # Skip to this chrom?
     one = False                 # Do a single chromosome?
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         next = ""
         for a in args:
             if next == '-w':
@@ -653,6 +694,39 @@ class DMR():
                 self.bedfile2 = P.isFile(a)
         if self.bedfile1 == None or self.bedfile2 == None:
             P.errmsg(P.NOFILE)
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py dmr [options] testbed ctrlbed
+
+This command compares two BED files containing methylation rates for two different conditions, 
+(test and control respectively) and detects regions of differential methylation (DMRs). The 
+genome is divided into consecutive windows of `winsize' nucleotides. A window is identified as 
+a DMR if: it contains at least `minsites1' sites in the test dataset and `minsites2' sites in
+the control dataset having coverage higher than `mincov'; if the difference between the methylation
+rates in test and control is higher than `methdiff'; and if the P-value of this difference, 
+computed using Fisher's exact test, is smaller than `pval'.
+
+Consecutive DMRs will be joined if the are separated by not more than `gap' windows. Only DMRs 
+with a differential methylation in the same direction (ie, both positive or both negative) will
+be joined, unless the -a option is specified. When regions are joined, the differential methylation
+value is the average of those of the joined regions (or the average of their absolute values if
+-a was specified) and the P-value is the highest of those in the joined regions.
+
+Options:
+
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites1 | Minimum number of sites from test in DMR (default: {}).
+ -s minsites2 | Minimum number of sites from control in DMR (default: {}).
+ -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
+ -d methdiff  | Minimum difference of methylation rates (default: {}).
+ -p pval      | P-value threshold (default: {}).
+ -g gap       | Maximum gap for DMR joining (default: {}).
+ -a           | Allow joining of DMRs in different directions.
+
+""".format(self.winsize, self.minsites1, self.minsites2, self.mincov, self.methdiff, self.pval, self.gap))
 
     def isDMR(self, data1, data2):
         """data1 = test, data2 = control."""
@@ -831,9 +905,9 @@ class DMR2writer():
         self.positions.append(pos)
         self.data.append(diff)
         
-    
-class DMR2():
+class DMR2(Script.Command):
     """detect differentially methylated regions (method #2)"""
+    _cmd = "dmr2"
     DW       = None          # DMR2writer
     mincov   = 4             # Minimum coverage of sites considered (-c)
     methdiff = 0.2           # Minimum diff meth (-d)
@@ -842,7 +916,7 @@ class DMR2():
     outfile  = None
     track_insig = False      # True if insignificant sites should be tracked
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         self.DW = DMR2writer()
         next = ""
         for a in args:
@@ -880,6 +954,31 @@ class DMR2():
         if self.bedfile1 == None or self.bedfile2 == None:
             P.errmsg(P.NOFILE)
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py dmr2 [options] testbed ctrlbed
+
+This command compares two BED files containing methylation rates for two different conditions, 
+(test and control respectively) and detects regions of differential methylation (DMRs). A DMR
+is defined as a sequence of at least `minsites' consecutive sites having coverage higher than
+`mincov', and all showing differential methylation in the same direction, over `methdiff'.
+
+The output file contains chromosome, start, and end position of each DMR, the average diffmeth
+of all sites in the DMR, and the number of sites.
+
+Options:
+
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -t minsites  | Minimum number of sites from test in DMR (default: {}).
+ -c mincov    | Minimum coverage of sites for -t and -s (default: {}).
+ -d methdiff  | Minimum difference of methylation rates (default: {}).
+ -s maxdist   | Maximum distance between sites in a window (default: {}).
+ -w minsize   | Minimum size of a DMR (default: {}).
+ --insig num  | Maximum number of sites below methdiff allowed in DMR (default: {}).
+
+""".format(DMR2writer.minsites, self.mincov, self.methdiff, DMR2writer.maxsitedist, DMR2writer.mindmrsize, DMR2writer.insig_max))
+            
     def findDMRs(self, out):
         self.DW.out = out
         out.write("#Chrom\tStart\tEnd\tLen\tDiffmeth\tNsites\n")
@@ -916,16 +1015,16 @@ class DMR2():
 
 ### WINAVG
 
-class WINAVG():
+class WINAVG(Script.Command):
     """generate a BED file containing average methylation in consecutive windows"""
-
+    _cmd = "winavg"
     winsize = 100
     minsites = 0   # Minimum number of sites in window
     mincov = 4     # Minimum coverage of sites counted
     bedfile = None # Input file
     outfile = None # Output file
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         next = ""
         for a in args:
             if next == '-w':
@@ -946,6 +1045,26 @@ class WINAVG():
                 self.bedfile = P.isFile(a)
         if self.bedfile == None:
             P.errmsg(P.NOFILE)
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py winavg [options] bedfile
+
+This command generates a BED file containing average metylation in consecutive windows from a BED
+file containing methylation rates. The input file `bedfile' should be in the format produced by
+mcall or cscall; in particular the first four columns should contain chromosome, start of site,
+end of site, site % methylation respectively. The output file will also have four columns: 
+chromosome, start of window, end of window, average % methylation in window.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites  | Minimum number of sites in window (default: {}).
+ -c mincov    | Minimum coverage of sites for -t (default: {}).
+
+""".format(self.winsize, self.minsites, self.mincov))
 
     def getAvg(self, data):
         ngood = 0
@@ -999,15 +1118,15 @@ class WINAVG():
 
 ### WINMAT
 
-class WINMAT():
+class WINMAT(Script.Command):
     """like winavg, but using a -mat file as input"""
-
+    _cmd = "winmat"
     winsize = 100
     minsites = 0   # Minimum number of sites in window
     matfile = None # Input file
     outfile = None # Output file
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         next = ""
         for a in args:
             if next == '-w':
@@ -1026,6 +1145,22 @@ class WINMAT():
         if self.matfile == None:
             P.errmsg(P.NOFILE)
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py winmat [options] matfile
+
+This command generates a BED file containing average metylation in consecutive windows from a -mat
+file.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -w winsize   | Set window size (default: {}).
+ -t minsites  | Minimum number of sites in window (default: {}).
+
+""".format(self.winsize, self.minsites))
+    
     def winMat(self, out):
         BR = MATreader(self.matfile)
         chrom = BR.chrom
@@ -1074,9 +1209,9 @@ class WINMAT():
 
 ### CMERGE
 
-class CMERGE():
+class CMERGE(Script.Command):
     """merge columns from multiple files into a single output file"""
-
+    _cmd = "cmerge"
     colmerger = None
     filenames = []
     targetcol = 3
@@ -1084,7 +1219,7 @@ class CMERGE():
     missing = "NA"
     skiphdr = False
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         self.filenames = []
         next = ""
         for a in args:
@@ -1106,6 +1241,26 @@ class CMERGE():
         if len(self.filenames) == 0:
             P.errmsg(P.NOFILE)
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py cmerge [options] files...
+
+This command merges columns from multiple input files into a single output file. The input files
+should have chromosome, start, and end position in the first three columns, and a value associated
+with each region in an additional column (the fourth one by default). For each region in the input
+files, the output file will contain chromosome, start, end, and the target columns from all input
+files in order.
+
+Options:
+ 
+ -o outfile   | Write output to `outfile' instead of standard output.
+ -c targetcol | Specify column containing values to be merged (default: {}).
+ -x missing   | Value to use for missing elements (default: {}).
+ -s           | Skip first row in each input file (default: False).
+
+""".format(self.targetcol, self.missing))
+
     def run(self):
         self.colmerger = ColMerger(self.filenames, self.targetcol, self.skiphdr)
         self.colmerger.parseAllSources()
@@ -1118,9 +1273,9 @@ class CMERGE():
 
 ### REGAVG
 
-class REGAVG():
+class REGAVG(Script.Command):
     """compute average methylation over a set of regions"""
-
+    _cmd = "regavg"
     bedfile   = None
     regfile   = None
     outfile   = None
@@ -1141,7 +1296,7 @@ class REGAVG():
     regreader = None
     bedreader = None
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         prev = ""
         for a in args:
             if prev == '-o':
@@ -1180,6 +1335,32 @@ class REGAVG():
         self.totsize = self.margsize + self.vectsize + self.margsize
             
         self.vector = np.zeros((2, self.totsize))
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py regavg [options] bedfile regionsfile
+
+Compute average methylation over a set of regions (e.g. gene transcripts) mapping
+site positions to a fixed-size vector. File `bedfile' should have at least four
+columns: chromosome, site start, site end, methylation. File `regionsfile' should 
+have at least four columns: chromsome, region start, region end, strand (+ or -). 
+
+Output is tab-delimited with three columns: position, average methylation at that 
+position, moving average at that position (computed over a window extending S 
+positions in both directions, where S is specified with the -s option).
+
+Options:
+
+  -o O | Write results to file O (default: stdout).
+  -w W | Map regions to a vector of size W (default: {}).
+  -m M | Map up/downstream of region to a vector of size M (default: {}).
+  -s S | Use smooting window of S positions (default: {}).
+  -u U | Size of up/downstream regions in bp in non-scaled mode (default: {}).
+  -f   | Do not scale up/downstream regions (in this case, -u is used to specify
+         size of up/downstream regions in bp).
+
+""".format(self.vectsize, self.margsize, self.winsize, self.upsizebp))
 
     def run(self):
         self.bedreader = METHreader(self.bedfile, skipHdr=False)
@@ -1323,14 +1504,14 @@ class Colpair():                # Used by CORR
         self.v1 = []
         self.v2 = []
 
-class CORR():
+class CORR(Script.Command):
     """compute correlation between methylation levels of replicates of a condition"""
-
+    _cmd = "corr"
     matfile = None
     outfile = None
     colpairs = []
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         prev = ""
         for a in args:
             if prev == "-o":
@@ -1346,6 +1527,9 @@ class CORR():
                     cp = Colpair(pair[0], pair[1])
                     self.colpairs.append(cp)
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("TBW\n")
+        
     def splitCols(self, s):
         pieces = s.split(",")
         if len(pieces) == 2:
@@ -1390,15 +1574,16 @@ class CORR():
 
 ### Difference of differential methylation rates.
 
-class DIFF():
+class DIFF(Script.Command):
     """Compute the difference between differential methylation rates in different contrasts"""
+    _cmd = "dodmeth"
     bedfile1 = None
     bedfile2 = None
     outfile = None
     column = 4
     threshold = 0.0
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         prev = ""
         for a in args:
             if prev == "-o":
@@ -1418,6 +1603,9 @@ class DIFF():
                 self.bedfile2 = P.isFile(a)
         if self.bedfile1 == None or self.bedfile2 == None:
             P.errmsg(P.NOFILE)
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("TBW.\n")
 
     def run(self):
         if self.outfile:
@@ -1487,8 +1675,9 @@ class DIFF():
                 
 ### Report average methylation rates by chromosome
 
-class BYCHROM():
-    """Generate a table of average methylation rate by chromosome in each sample."""
+class BYCHROM(Script.Command):
+    """generate a table of average methylation rate by chromosome in each sample"""
+    _cmd = "bychr"
     bedfiles = []
     labels = []
     nsamples = 0
@@ -1496,7 +1685,7 @@ class BYCHROM():
     data = {}
     outfile = "/dev/stdout"
 
-    def __init__(self, args):
+    def parseArgs(self, args):
         prev = ""
         for a in args:
             if prev == "-o":
@@ -1515,6 +1704,9 @@ class BYCHROM():
         self.chroms = []
         self.data = {}
 
+    def usage(self, parent, out=sys.stdout):
+        out.write("TBW.\n")
+        
     def run(self):
         self.readFirst()
         i = 1
@@ -1605,67 +1797,55 @@ class BYCHROM():
 ### Re-run pipeline for genediffmeth in more regions - DONE
 ### Add links to mat files - DONE
 
-CLASSES = {'merge': Merger,
-           'avgmeth': Averager,
-           'histmeth': Histcomparer,
-           'dmr': DMR,
-           'dmr2': DMR2,
-           'winavg': WINAVG,
-           'winmat': WINMAT,
-           'cmerge': CMERGE,
-           'regavg': REGAVG,
-           'corr': CORR,
-           'dodmeth': DIFF,
-           'bychr': BYCHROM}
+### Main
 
-def allCommands():
-    global CLASSES
-    return sorted(CLASSES.keys())
+class Prog(Script.Script):
+
+    def main(self, args):
+        self.standardOpts(args)
+        cmd = args[0]
+        cl = self.findCommand(cmd)
+        if cl:
+            M = cl()
+            if M.parseArgs():
+                M.run()
+        else:
+            self.usage()
+        
+P = Prog("dmaptools.py", version="1.0",
+         errors=[('NOCMD', 'Missing command', 'The first argument should be a command name')])
+P.addCommand(Merger)
+P.addCommand(Averager)
+P.addCommand(Histcomparer)
+P.addCommand(DMR)
+P.addCommand(DMR2)
+P.addCommand(WINAVG)
+P.addCommand(WINMAT)
+P.addCommand(CMERGE)
+P.addCommand(REGAVG)
+P.addCommand(CORR)
+P.addCommand(DIFF)
+P.addCommand(BYCHROM)
+
+cmdlist = ""
+for cmd in P._commandNames:
+    cl = P.findCommand(cmd)
+    cmdlist += "{} - {}.\n".format(cmd, cl.__doc__)
+
+P.setDocstrings({'main': """dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py command arguments...
+
+where command is one of: {}
+
+{}
+Use `dmaptools.py -h command' to display usage for `command'.
+
+""".format(", ".join(P._commandNames), cmdlist)})
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     nargs = len(args)
     if nargs == 0:
         P.errmsg(P.NOCMD)
-
-    P.standardOpts(args)
-
-    cmd = args[0]
-    
-    if cmd in CLASSES:
-        cl = CLASSES[cmd]
-        M = cl(args[1:])
-        M.run()
-
-    # if cmd == 'merge':
-    #     M = Merger(args[1:])
-    #     M.run()
-    # elif cmd == 'avgmeth':
-    #     M = Averager(args[1:])
-    #     M.run()
-    # elif cmd == 'histmeth':
-    #     M = Histcomparer(args[1:])
-    #     M.run()
-    # elif cmd == 'dmr':
-    #     M = DMR(args[1:])
-    #     M.run()
-    # elif cmd == 'dmr2':
-    #     M = DMR2(args[1:])
-    #     M.run()
-    # elif cmd == 'winavg':
-    #     M = WINAVG(args[1:])
-    #     M.run()
-    # elif cmd == 'winmat':
-    #     M = WINMAT(args[1:])
-    #     M.run()
-    # elif cmd == 'cmerge':
-    #     M = CMERGE(args[1:])
-    #     M.run()
-    # elif cmd == 'regavg':
-    #     M = REGAVG(args[1:])
-    #     M.run()
-    # elif cmd == 'corr':
-    #     M = CORR(args[1:])
-    #     M.run()
-    else:
-        P.usage()
+    P.main(args)

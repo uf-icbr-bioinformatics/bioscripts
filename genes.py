@@ -80,9 +80,8 @@ class MakeDB(Script.Command):
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py makedb [options] dbfile
 
-Convert a gene database in gtf/gff/genbank/refFlat format to sqlite3 format. 
-The -db option specifies the input database, the -o option specifies the output 
-database. Both are required.
+Convert a gene database `dbfile' in gtf/gff/genbank/refFlat format to sqlite3 format. 
+The -o option specifies the output database.
 
 """)
 
@@ -401,8 +400,6 @@ Options:
 
 """.format(P.regwanted, P.updistance, P.updistance, P.dndistance, P.ovbases))
 
-
-
     def run(self, P):
         if len(P.args) < 2:
             P.errmsg(P.NOFILE)
@@ -620,35 +617,6 @@ Rewrite input file `infile' adding gene annotations. Options:
                             row[inscol:inscol] = missing
                         out.write("\t".join(row) + "\n")
 
-### Main
-
-def usage(what=None):
-    if what == None:
-        sys.stderr.write("""genes.py - Create and query databases of genes and transcripts
-
-Usage: genes.py [common-options] [options] command command-arguments...
-
-where `command' can be one of: {}.
-
-Common options (applicable to all commands):
-
-  -o  O | Write output to file O (default: stdout)
-  -db D | Load gene database from database file D. D can be in one of the following formats:
-          - gtf (extensions .gtf, .GTF)
-          - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
-          - genbank (extension .gb)
-          - UCSC refFlat (extension .csv)
-          - sqlite3 (extension .db)
-
-Use genes.py -h <command> to get help on <command> and its specific options.
-
-""".format(", ".join(P._commandNames)))
-
-    else:
-        c = P.findCommand(what)
-        if c:
-            c().usage(P)
-        
 ### Program object
 
 class Prog(Script.Script):
@@ -754,7 +722,7 @@ class Prog(Script.Script):
             P.errmsg(self.BADSRC)
         return cmd
 
-P = Prog("genes.py", version="1.0", usage=usage, 
+P = Prog("genes.py", version="1.0",
          errors=[('BADSRC', 'Missing gene database'),
                  ('NOFILE', 'The input file does not exist.'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
@@ -770,6 +738,26 @@ P.addCommand(Split)
 P.addCommand(Closest)
 P.addCommand(Annotate)
 
+P.setDocstrings({'main': """genes.py - Create and query databases of genes and transcripts
+
+Usage: genes.py [common-options] [options] command command-arguments...
+
+where `command' can be one of: {}.
+
+Common options (applicable to all commands):
+
+  -o  O | Write output to file O (default: stdout)
+  -db D | Load gene database from database file D. D can be in one of the following formats:
+          - gtf (extensions .gtf, .GTF)
+          - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
+          - genbank (extension .gb)
+          - UCSC refFlat (extension .csv)
+          - sqlite3 (extension .db)
+
+Use genes.py -h <command> to get help on <command> and its specific options.
+
+""".format(", ".join(P._commandNames))})
+
 ### Main
 
 def main(args):
@@ -780,7 +768,7 @@ def main(args):
         if c:
             c().run(P)
         else:
-            usage(P)
+            P.usage()
     except IOError:
         return
 

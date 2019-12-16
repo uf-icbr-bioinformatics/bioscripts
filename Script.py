@@ -11,21 +11,24 @@ class Command():
     __doc__ = "Use this to document commands."
     c = None                    # Database cursor, if needed
 
+    def usage(self, parent, out=sys.stdout):
+        out.write(self.__doc__)
+    
 ### Main Script class
 
 class Script():
     name = ""
     version = "1.0"
-    copyright = """(c) 2018, A. Riva, ICBR Bioinformatics Core, University of Florida
-          L. Boatwright, ICBR Bioinformatics Core, University of Florida"""
+    copyright = """(c) 2019, ICBR Bioinformatics Core, University of Florida\n"""
     usagefun = None
     errorNames = {}
     errorMsg = {}
     errorCode = 1
     _commands = {}
     _commandNames = []
-
-    def __init__(self, name, version="1.0", usage=None, errors=[], copyright=None):
+    docstrings = {}
+    
+    def __init__(self, name, version="1.0", usage=None, errors=[], copyright=None, docstrings={}):
         """Errors should be a list of tuples: (code, name, message)."""
         self.name = name
         self.version = version
@@ -39,6 +42,7 @@ class Script():
                            ('BADFLOAT', "Bad float", "`{}' is not a floating point number.")])
         self.errorCode = 100
         self.defineErrors(errors)
+        self.docstrings = docstrings
         if copyright:
             self.copyright = copyright
         self.init()
@@ -46,6 +50,9 @@ class Script():
     def init(self):
         pass
 
+    def setDocstrings(self, docstrings):
+        self.docstrings = docstrings
+    
     def defineErrors(self, errors):
         for e in errors:
             self.errorNames[self.errorCode] = e[1]
@@ -60,13 +67,24 @@ class Script():
         for (code, name) in Utils.get_iterator(self.errorNames):
             sys.stderr.write("{}: {}\n".format(code, name))
 
-    def usage(self, what=None):
-        if what:
+    def usage(self, what="main", out=sys.stdout, exit=True):
+        """If `what' indicates the name of a command, call the command's 
+usage() method. If `what' is a key for the docstrings dictionary, write
+the associated value to `out'. If the `usagefun' attribute is defined,
+call it with `what' as an argument. Otherwise, signal that help is not
+available."""
+        if what in self._commands:
+            C = self._commands[what]
+            C().usage(self, out=out)
+        elif what in self.docstrings:
+            out.write(self.docstrings[what])
+        elif self.usagefun:
             self.usagefun(what)
         else:
-            self.usagefun()
-        sys.stderr.write(self.copyright + "\n")
-        sys.exit(0)
+            sys.stdout.write("Help on `{}' not available.\n".format(what))
+        sys.stdout.write(self.copyright + "\n")
+        if exit:
+            sys.exit(0)
 
     def getOptionValue(self, args, opts):
         """If one of the options in `opts' is present in `args', returns a tuple containing the actual argument
