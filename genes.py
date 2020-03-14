@@ -123,6 +123,20 @@ class Classify(Script.Command):
             stream.write("{}\t{}\t{:.2f}%\n".format(regs[0], self.totals[regs[1]], pct))
         stream.write("Total\t{}\t\n".format(tot))
 
+    def reportATAC(self, stream):
+        regnames = [ ('Upstream', 'u'), ('Downstream', 'd'), ('Gene body', 'e'), ('Enhancer', 'E'), ('Intergenic', 'o') ]
+        if stream == 's':
+            stream = self.streams['s']
+        stream.write("Class\tNumber\tPercentage\n")
+        tot = self.totals['n']
+        for regs in regnames:
+            if tot > 0:
+                pct = 100.0 * self.totals[regs[1]] / tot
+            else:
+                pct = 0
+            stream.write("{}\t{}\t{:.1f}%\n".format(regs[0], self.totals[regs[1]], pct))
+        stream.write("Total\t{}\t\n".format(tot))
+
     def initStreams(self, filename, header=None, stream=None):
         base = os.path.splitext(filename)[0]
         filename = base + "-Summary.csv"
@@ -175,6 +189,7 @@ Options:
   -X     | Do not display regions that have no classification.
   -s     | Summary classification only (number and percentage of region classes).
   -c C   | Add column C from regions file to output.
+  -e E   | Read enhancers from file E (enables ATAC mode).
 
 """.format(P.updistance, P.updistance, P.dndistance))
     
@@ -193,6 +208,12 @@ Options:
         sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
 
         with Utils.Output(P.outfile) as out:
+
+            if P.mode == "a":
+                self.classifyATAC(regions)
+                self.reportATAC(out)
+                return
+
             if P.mode in "tg":
                 if P.mode == "t":
                     hdr = "Chrom\tStart\tEnd\tGene\tID\tAccession\tClass\tExNum"
@@ -272,6 +293,49 @@ Options:
             if "s" in P.mode:
                 self.report(out)
 
+    def classifyATAC(self, regions):
+        E = GeneList.Genelist()
+        with open(P.enhancers, "r") as f:
+            c = csv.reader(f, delimiter="\t")
+            eid = 1
+            for line in c:
+                if len(line) >= 4:
+                    ename = line[3]
+                else:
+                    ename = "ENH" + str(eid)
+                    eid += 1
+                enh = GeneList.Gene(ename, line[0], "+")
+                enh.start = int(line[1])
+                enh.end = int(line[2])
+                enh.txstart = enh.start
+                enh.txend = enh.end
+                E.add(enh, enh.chrom)
+        sys.stderr.write("{} enhancers read.\n".format(E.ngenes))
+
+        maxd = max(P.updistance, P.dndistance)
+        for reg in regions:
+            if type(reg).__name__ == 'str':
+                reg = parseRegion(reg)
+            start = reg[1]
+            end   = reg[2]
+            pos   = (start + end) / 2
+            genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
+            enhs  = E.allIntersecting(reg[0], pos, pos+1)
+            gclass = ""
+            for g in genes:
+                c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                gclass += c
+            if "u" in gclass:
+                self.add("u")
+            elif "d" in gclass:
+                self.add("d")
+            elif enhs:
+                self.add("E")   # Here represents enhancer
+            elif "E" in gclass or "e" in gclass or "i" in gclass:
+                self.add("e")   # Here represents gene body
+            else:
+                self.add("o")
+
 class Region(Script.Command):
     _cmd = "region"
 
@@ -286,8 +350,8 @@ treated as a gene or transcript identifier.
 
 Options:
 
-  -r R   | Desired gene region: either `b' (gene body), `u' (upstream), or `d' (downstream). 
-           Default: {}.
+  -r R   | Desired gene region: either `b' (gene body), `B' (extended gene body), `p' (promoter),
+           `u' (upstream), or `d' (downstream). Default: {}.
   -f F   | Output format: either `c' (for coordinates, e.g. chr1:1000-1500) or `t' (tab-delimited).
            Default: {}.
   -d N   | Upstream/downstream distance from gene; if specified, sets -dup and -ddn 
@@ -661,7 +725,7 @@ class Prog(Script.Script):
     oformat = "c"
     regwanted = "b"             # Gene body by default
     gl = None                   # Gene list
-    mode = "g"                  # used to be cltrans - also "t" for transcript-level, "s" for summary
+    mode = "g"                  # used to be cltrans - also "t" for transcript-level, "s" for summary, "a" for ATAC
     ovbases = 100               # Number of overlap bases
     addBedFields = False        # If True, add contents of original BED file
     excel = False               # (also used for Classify with a different meaning)
@@ -672,6 +736,7 @@ class Prog(Script.Script):
     canonical = False           # If True (-ca) only look at canonical transcript for each gene in Closest or Classify
     tss = False                 # If True (-ts) use TSS as reference point for distances in Closest
     unclassified = True         # If True, display regions that have no classification. -X disables this.
+    enhancers = ""
 
     def parseArgs(self, args):
         cmd = None
@@ -706,7 +771,7 @@ class Prog(Script.Script):
                 self.ovbases = self.toInt(a)
                 next = ""
             elif next == '-r':
-                if a in ['b', 'u', 'd']:
+                if a in ['b', 'B', 'p', 'u', 'd']:
                     self.regwanted = a
                     next = ""
                 else:
@@ -722,7 +787,11 @@ class Prog(Script.Script):
             elif next == "-w":
                 self.wanted = a.split(",")
                 next = ""
-            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w"]:
+            elif next == "-e":
+                self.enhancers = a
+                self.mode = "a"
+                next = ""
+            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w", "-e"]:
                 next = a
             elif a == '-t':
                 if self.mode == "s":

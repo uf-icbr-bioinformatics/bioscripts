@@ -372,6 +372,26 @@ class Pathname():
         (n, e) = os.path.splitext(f)
         self.name = n
         self.ext = e
+
+# Class to safely change directory
+
+class Directory(object):
+    prevdir = ""
+    newdir = ""
+
+    def __init__(self, newdir):
+        self.prevdir = os.getcwd()
+        self.newdir = newdir
+
+    def __enter__(self):
+        os.chdir(self.newdir)
+        sys.stderr.write("Current directory: {}\n".format(os.getcwd()))
+
+    def __exit__(self, type, value, traceback):
+        os.chdir(self.prevdir)
+        sys.stderr.write("Current directory: {}\n".format(os.getcwd()))
+
+# Output file writer
         
 class Output():
     destination = None

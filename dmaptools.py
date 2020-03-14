@@ -5,13 +5,13 @@ import csv
 import numpy as np
 import scipy.stats
 
-from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt
+from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt, safeInt
 
 import Script
 
 # Main
 
-COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth"
+COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth, cpg"
 
 def usage(what=None):
     if what == None:
@@ -31,7 +31,12 @@ where command is one of: {}
 Use `dmaptools.py -h command' to display usage for `command'.
 
 """)
-    elif what == 'regavg':
+    elif what in CLASSES:
+        cl = CLASSES[what]
+        cl.usage()
+
+def dummy(what):
+    if what == 'regavg':
         sys.stderr.write("""dmaptools.py - Operate on methylation data.
 
 Usage: dmaptools.py regavg [options] bedfile regionsfile
@@ -1181,6 +1186,32 @@ class REGAVG():
             
         self.vector = np.zeros((2, self.totsize))
 
+    def usage(self):
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py regavg [options] bedfile regionsfile
+
+Compute average methylation over a set of regions (e.g. gene transcripts) mapping
+site positions to a fixed-size vector. File `bedfile' should have at least four
+columns: chromosome, site start, site end, methylation. File `regionsfile' should 
+have at least four columns: chromsome, region start, region end, strand (+ or -). 
+
+Output is tab-delimited with three columns: position, average methylation at that 
+position, moving average at that position (computed over a window extending S 
+positions in both directions, where S is specified with the -s option).
+
+Options:
+
+  -o O | Write results to file O (default: stdout).
+  -w W | Map regions to a vector of size W (default: {}).
+  -m M | Map up/downstream of region to a vector of size M (default: {}).
+  -s S | Use smooting window of S positions (default: {}).
+  -u U | Size of up/downstream regions in bp in non-scaled mode (default: {}).
+  -f   | Do not scale up/downstream regions (in this case, -u is used to specify
+         size of up/downstream regions in bp).
+
+""".format(self.vectsize, self.margsize, self.winsize, self.upsizebp))
+
     def run(self):
         self.bedreader = METHreader(self.bedfile, skipHdr=False)
         self.bedreader.readNext()
@@ -1537,6 +1568,8 @@ class BYCHROM():
             c = csv.reader(f, delimiter='\t')
             for line in c:
                 this = line[0]
+                if "_" in this: # Skip "fake" chromosomes
+                    continue
                 if this != chrom: # new chromosome?
                     if chrom:
                         # sys.stderr.write("Creating cdata for {}\n".format(chrom))
@@ -1563,6 +1596,8 @@ class BYCHROM():
             c = csv.reader(f, delimiter='\t')
             for line in c:
                 this = line[0]
+                if "_" in this:
+                    continue
                 if this != chrom: # new chromosome?
                     if chrom:
                         # sys.stderr.write("Creating cdata for {}\n".format(chrom))
@@ -1576,6 +1611,141 @@ class BYCHROM():
             cdata = self.data[chrom]
             cdata[i] = float(nc)/nr
         sys.stderr.write("done.\n")
+
+# CpG Islands stats
+
+class CpGisland():
+    start  = 0                  # island
+    end    = 0
+    start2 = 0                  # shore
+    end2   = 0
+    start3 = 0                  # shelf
+    end3   = 0
+    shore  = 2000
+    shelf  = 4000
+    
+    def __init__(self, start, end):
+        self.start  = start
+        self.end    = end
+        self.start2 = start - self.shore
+        self.end2   = end + self.shore
+        self.start3 = start - self.shelf
+        self.end3   = end + self.shelf
+
+    def classify(self, position):
+        if self.start <= position <= self.end:
+            return "I"
+        elif self.start2 <= position <= self.end2:
+            return "S"
+        elif self.start3 <= position <= self.end3:
+            return "F"
+        else:
+            return ""
+
+class CPGCOUNT():
+    """Count number of sites in CpG islands, shores, shelves in one or more BED file."""
+    cpgfile = None
+    bedfiles = []
+    cpgdb = {}
+    reportfile = "/dev/stdout"
+    outfile = True
+
+    def __init__(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-r":
+                self.reportfile = a
+                prev = ""
+            elif prev == "-f":
+                CpGisland.shelf = int(a)
+                prev = ""
+            elif prev == "-e":
+                CpGisland.shore = int(a)
+                prev = ""
+            elif a in ["-r", "-f", "-e"]:
+                prev = a
+            elif a == "-x":
+                self.outfile = False
+            elif self.cpgfile is None:
+                self.cpgfile = a
+            else:
+                self.bedfiles.append(a)
+
+    def usage(self):
+        sys.stderr.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py cpg [options] cpgfile bedfiles...
+
+This command reports the number of methylation sites in the specified BED files 
+that fall within or close to the CpG islands defined in `cpgfile'. Sites are classified
+as being internal to the island, in the island shore, or in the island shelf.
+
+Options:
+
+  -o O | Write output to file O (default: stdout)
+  -e E | Specify size of CpG island shore (default: {})
+  -f F | Specify size of CpG island shelf (default: {})
+
+""".format(CpGisland.shore, CpGisland.shelf))
+
+    def run(self):
+        self.readCpGfile()
+        with open(self.reportfile, "w") as out:
+            out.write("#Filename\tSites\tNisland\tNshore\tNshelf\tSitelist\n")
+            for bed in self.bedfiles:
+                (n0, n1, n2, n3, of) = self.countSites(bed)
+                out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(bed, n0, n1, n2, n3, of))
+
+    def readCpGfile(self):
+        with open(self.cpgfile, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                chrom = line[0]
+                if chrom not in self.cpgdb:
+                    self.cpgdb[chrom] = []
+                s = CpGisland(int(line[1]), int(line[2]))
+                self.cpgdb[chrom].append(s)
+
+    def findIsland(self, chrom, pos):
+        if chrom not in self.cpgdb:
+            return None
+        ilist = self.cpgdb[chrom]
+        for i in ilist:
+            if i.start3 <= pos <= i.end3:
+                return i
+            if i.start3 > pos:
+                return None
+
+    def countSites(self, bedfile):
+        n0 = n1 = n2 = n3 = 0
+        out = None
+        if self.outfile:
+            outfilename = filenameNoExt(bedfile) + ".cpg.csv"
+            out = open(outfilename, "w")
+        try:
+            with open(bedfile, "r") as f:
+                c = csv.reader(f, delimiter='\t')
+                for line in c:
+                    chrom = line[0]
+                    pos = safeInt(line[1])
+                    if pos is None:
+                        continue
+                    n0 += 1
+                    island = self.findIsland(chrom, pos)
+                    if island:
+                        x = island.classify(pos)
+                        if x == "I":
+                            n1 += 1
+                        elif x == "S":
+                            n2 += 1
+                        elif x == "F":
+                            n3 += 1
+                        if x and out:
+                            out.write("{}\t{}\t{}\t{}\n".format(bedfile, chrom, pos, x))
+        finally:
+            if out:
+                out.close()
+        return (n0, n1, n2, n3, outfilename)
 
 ## window-based DMR analysis:
 ### Params:
@@ -1616,7 +1786,8 @@ CLASSES = {'merge': Merger,
            'regavg': REGAVG,
            'corr': CORR,
            'dodmeth': DIFF,
-           'bychr': BYCHROM}
+           'bychr': BYCHROM,
+           'cpg': CPGCOUNT}
 
 def allCommands():
     global CLASSES

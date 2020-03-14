@@ -186,6 +186,29 @@ def cutReads(filename1, filename2, outfile1, outfile2):
 {} reads written.
 """.format(nin, nout))
 
+def cutReads1(filename1, outfile1):
+    nin = 0
+    nout = 0
+    f1 = genOpen(filename1, "r")
+    o1 = genOpen(outfile1, "w")
+    try:
+        while True:
+            h1 = f1.readline().rstrip("\r\n")
+            r1 = f1.readline().rstrip("\r\n")
+            d1 = f1.readline().rstrip("\r\n")
+            q1 = f1.readline().rstrip("\r\n")
+            if h1 == '':
+                break
+#            if len(r1) < CUT or len(r2) < CUT:
+#                continue
+            o1.write("{}\n{}\n{}\n{}\n".format(h1, r1[CUT], d1, q1[CUT]))
+    finally:
+        f1.close()
+        o1.close()
+    sys.stderr.write("""{} reads in,
+{} reads written.
+""".format(nin, nout))
+
 def checkQuality(filename):
     minq = 1000
     maxq = 0
@@ -219,7 +242,11 @@ if __name__ == "__main__":
             mode = 'c'
             CUT = Utils.parseSlice(a)
             next = ""
-        elif a in ['-o', '-c']:
+        elif next == '-C':
+            mode = 'C'
+            CUT = Utils.parseSlice(a)
+            next = ""
+        elif a in ['-o', '-c', '-C']:
             next = a
         elif a == '-m':
             MILLIONS = True
@@ -241,6 +268,8 @@ if __name__ == "__main__":
             verifyPaired(files[0], files[1])
         elif mode == 'c':
             cutReads(files[0], files[1], files[2], files[3])
+        elif mode == 'C':
+            cutReads1(files[0], files[1])
         elif mode == 'q':
             for f in files:
                 checkQuality(f)

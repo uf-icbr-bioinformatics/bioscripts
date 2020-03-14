@@ -495,6 +495,8 @@ to their numeric representation if possible."""
         try:
             if self.skipHeader:
                 self.header = f.next()
+                if self.printHeader:
+                    self.out.write("\t".join(self.header) + "\n")
             for row in f:
                 if len(row) == 0:
                     continue
@@ -507,8 +509,6 @@ to their numeric representation if possible."""
                     self.processRow(row)
                 except SkipEntry:
                     pass
-            if self.printHeader:
-                sys.stdout.write("\t".join(self.header) + "\n")
         except IOError:
             return
 

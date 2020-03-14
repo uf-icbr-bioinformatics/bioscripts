@@ -477,7 +477,7 @@ the identifier in the first column is in the set `ids'."""
                     if dolog:
                         row[col] = math.log(float(parsed[fccol]), 2)
                     else:
-                        row[col] = float(parsed[fccol])
+                        row[col] = parsed[fccol]
 
     def mergeOne(self, desc, key1, key2, fccol, pcol, outfile):
         wanted = set()
@@ -501,8 +501,8 @@ the identifier in the first column is in the set `ids'."""
         col = 0
         for l in self.labels:
             filename = self.labelFilename(l, key2)
-            ew("Reading fold changes and P-values from file '{}'.\n", filename)
-            self.fillMatrixColumn(filename, col, wanted, matrix, fccol=fccol, dolog=True)
+            ew("Reading fold changes (col {}) and P-values (col {}) from file '{}'.\n", fccol, pcol, filename)
+            self.fillMatrixColumn(filename, col, wanted, matrix, fccol=fccol, dolog=False)
             self.fillMatrixColumn(filename, col, wanted, pmatrix, fccol=pcol, dolog=False)
             col += 1
 
@@ -527,9 +527,9 @@ the identifier in the first column is in the set `ids'."""
                 out.write("\n")
 
     def merge(self):
-        self.mergeOne('genes', 'gf', 'gd', 3, 1, self.gmerged)
-        self.mergeOne('coding genes', 'cf', 'cd', 3, 1, self.cmerged)
-        self.mergeOne('isoforms', 'if', 'id', 3, 1, self.imerged)
+        self.mergeOne('genes', 'gf', 'gd', 2, 6, self.gmerged)
+        self.mergeOne('coding genes', 'cf', 'cd', 2, 6, self.cmerged)
+        self.mergeOne('isoforms', 'if', 'id', 2, 6, self.imerged)
 
     def run(self):
         self.merge()
