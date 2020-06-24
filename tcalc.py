@@ -357,7 +357,7 @@ def usage(what=None):
     sys.stdout.write("""tcalc.py - Process a tab-delimited file
 
 """)
-    if what == None:
+    if what == "main":
         sys.stdout.write("""Usage: tcalc.py [options] "recipe" [infile] [outfile]
 
 This program processes a tab-delimited file one row at a time according 
