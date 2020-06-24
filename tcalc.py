@@ -7,6 +7,7 @@ import math
 import gzip
 from Utils import genOpen, convertValue, dget
 import Script
+from numpy import median, percentile
 
 ### filter C1=I set f=C1+C2 return avg(f)
 ### set f=C1+C2 print C1 C2 f
@@ -27,9 +28,12 @@ SUM = FUNC
 ADD = FUNC
 AVG = FUNC
 MEAN = FUNC
+MEDIAN = FUNC
 STDEV = FUNC
 MIN = FUNC
 MAX = FUNC
+HIST = FUNC
+PERC = FUNC
 
 ### Decode 'Cn' variables
 
@@ -151,6 +155,57 @@ class SortTerm(Term):
     def dump(self):
         return "SORT " + self.sortColName
 
+class HistogramTerm(Term):
+    histCol = 0
+    histColName = ""
+    values = []
+    minValue = sys.float_info.max
+    maxValue = sys.float_info.min
+
+    def init(self, column):
+        self.values = []
+        self.histColName = column
+        self.histCol = parseCvar(column)
+
+    def execute(self, row):
+        x = convertValue(row[self.histCol])
+        self.minValue = min(x, self.minValue)
+        self.maxValue = max(x, self.maxValue)
+        self.values.append(x)
+        raise SkipEntry
+
+    def terminate(self):
+        nbins = self.parent.getVar(".nbins", 10)
+        step = (self.maxValue - self.minValue) / nbins
+        counts = [0]*nbins
+        limits = [ self.minValue + step * (i+1) for i in range(nbins) ]
+        for x in self.values:
+            for i in range(nbins):
+                if x <= limits[i]:
+                    counts[i] += 1
+                    break
+        for i in range(nbins):
+            sys.stdout.write("{}\t{}\n".format(limits[i], counts[i]))
+
+class PercentilesTerm(Term):
+    percCol = 0
+    percColName = ""
+    values = []
+
+    def init(self, column):
+        self.values = []
+        self.percColName = column
+        self.percCol = parseCvar(column)
+
+    def execute(self, row):
+        x = convertValue(row[self.percCol])
+        self.values.append(x)
+        raise SkipEntry
+
+    def terminate(self):
+        for p in [25, 50, 75, 90, 99]:
+            sys.stdout.write("{}\t{}\n".format(p, percentile(self.values, p)))
+
 class ReturnTerm(Term):
     termtype = "return"
 
@@ -204,6 +259,24 @@ class AvgTerm(ReturnTerm):
             return 1.0*self.sum/self.nvals
         else:
             return 0.0
+        
+class MedianTerm(ReturnTerm):
+    vals = []
+
+    def reset(self):
+        self.vals = []
+
+    def execute(self, row):
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, value):
+        if not type(value).__name__ == 'str':
+            self.vals.append(value)
+
+    def result(self):
+        return median(self.vals)
         
 class StdevTerm(ReturnTerm):
     sum = 0
@@ -260,9 +333,13 @@ TERMMAP = [ ('SUM', SumTerm),
             ('ADD', SumTerm),
             ('AVG', AvgTerm),
             ('MEAN', AvgTerm),
+            ('MEDIAN', MedianTerm),
             ('STDEV', StdevTerm),
             ('MIN', MinTerm),
-            ('MAX', MaxTerm) ]
+            ('MAX', MaxTerm),
+            ('HIST', HistogramTerm),
+            ('PCT', PercentilesTerm)
+]
 
 def funcToTerm(source):
     global TERMMAP
@@ -351,8 +428,10 @@ Note: function names should be written in uppercase.
 
 SUM(), ADD()  - Sum values.
 AVG(), MEAN() - Average values.
+MEDIAN()      - Median value
 STDEV()       - Compute standard deviation.
 MIN(), MAX()  - Compute minimum and maximum.
+HIST()        - Compute histogram of values
 
 """)
 
@@ -439,10 +518,14 @@ class Driver(Script.Script):
         words = recipe.split()
         mode = ""
         for w in words:
-            if w in ["filter", "if", "set", "print", "do", "return", "sort", "rsort"]:
+            if w in ["filter", "if", "set", "print", "do", "return", "sort", "rsort", "hist", "pct"]:
                 mode = w
             elif mode == "sort":
                 self.addTerm(SortTerm(w))
+            elif mode == "hist":
+                self.addTerm(HistogramTerm(w))
+            elif mode == "pct":
+                self.addTerm(PercentilesTerm(w))
             elif mode == "rsort":
                 st = SortTerm(w)
                 st.reverse = True
@@ -475,6 +558,12 @@ class Driver(Script.Script):
             pt = PrintTerm(None)
             self.addTerm(pt)
             self.printTerm = pt
+
+    def getVar(self, name, default=None):
+        if name in self.variables:
+            return int(self.variables[name].source)
+        else:
+            return default
 
     def execute(self, row):
         for term in self.terms:

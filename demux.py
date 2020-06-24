@@ -56,6 +56,7 @@ Options:
   -rt P   | Search for pattern P in right reads.
   -d D    | Number of files to distribute reads to (default: {})
   -o O    | Prefix for files for distributed reads.
+  -1      | In detect, if dual indexing is used (e.g. AAA+BBB), only return the first index.
 
 """.format(__doc__, Demux.maxmismatch, Demux.ndetect, Demux.minpct, Demux.distr))
 
@@ -75,7 +76,7 @@ class Demux(Script.Script):
     bcstart = 0
     bcend = None
     bcslice = None
-    removePlus = True           # Only return first component of dual barcodes (e.g. AACC+GGTT)
+    removePlus = False          # Only return first component of dual barcodes (e.g. AACC+GGTT)
     leftTarget = None
     rightTarget = None
     distr = 1
@@ -125,6 +126,8 @@ class Demux(Script.Script):
                 self.revcomp = True
             elif a == '-u':
                 self.undet = False
+            elif a == "-1":
+                self.removePlus = True
             elif self.nf == 0:
                 self.fqleft = "-" if a == "-" else self.isFile(a)
                 self.nf += 1

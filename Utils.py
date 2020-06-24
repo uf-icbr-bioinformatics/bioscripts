@@ -511,6 +511,7 @@ class AtFileReader():
                 return line[self.col]
 
     def readline(self):
+        """Read a full line from this reader."""
         while True:
             line = self.stream.readline()
             if line == '':

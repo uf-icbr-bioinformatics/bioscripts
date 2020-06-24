@@ -57,6 +57,63 @@ def parseCoords(c):
     else:
         return None
 
+# Classification of positions
+
+class Classif(object):
+    idx = 0
+    name = ""
+    subject = None
+    extra = ""
+
+    def __init__(self, subject=None, extra=""):
+        self.subject = subject
+        self.extra = extra
+
+class CL_NONE(Classif):
+    idx = 0
+    name = 'o'
+
+class CL_CODING(Classif):
+    idx = 90
+    name = 'E'
+
+class CL_EXON(Classif):
+    idx = 80
+    name = 'e'
+
+class CL_UPSTREAM(Classif):
+    idx = 70
+    name = 'u'
+
+class CL_INTRON(Classif):
+    idx = 60
+    name = 'i'
+
+class CL_DNSTREAM(Classif):
+    idx = 50
+    name = 'd'
+
+class CL_ENHANCER(Classif):
+    idx = 65
+    name = 'h'
+
+def addClassification(cls, clist):
+    """Add classification `cls' to list `clist' only if
+it does not already appear."""
+    for x in clist:
+        if x.name == cls.name:
+            if cls.name in "Ee":
+                if cls.extra == x.extra:
+                    return clist
+            else:
+                return clist
+    clist.append(cls)
+    return clist
+
+def sortClassifications(cls):
+    cls.sort(key=lambda c: c.idx, reverse=True)
+    return cls
+
 # Classes
 
 class Genelist():
@@ -669,7 +726,7 @@ smallrects and largerects lists."""
                 self.largerects.append(e)
 
     def posInExon(self, pos):
-        """Return True if position `pos' is in one of the exons of this transcript."""
+        """If position `pos' is in one of the exons of this transcript, return the exon number, otherwise return False."""
         nexons = len(self.exons) + 1
         ne = 1
         for e in self.exons:
@@ -711,32 +768,32 @@ smallrects and largerects lists."""
         return False
 
     def classifyPosition(self, pos, updistance, dndistance):
-        """Returns a single character that classifies position `pos' within this transcript.
-Possible return values are 'u' (up to `distance' bp upstream of the transcript), 'd'
-(up to `distance' bp downstream of the transcript), 'E' (in a coding exon), 'e' (in a
-non-coding exon), 'i' (in an intron)."""
+        """Returns a Classif instance that classifies position `pos' within this transcript,
+including `updistance' bases upstream of the TSS and `dndistance' bases downstream of the TES.
+If the class is CL_CODING or CL_EXON, the `extra' attribute contains the exon number.
+"""
         if self.txstart <= pos <= self.txend:
             ne = self.posInExon(pos)
             if ne:
                 if self.cdsstart <= pos <= self.cdsend:
-                    return 'E' + str(ne)
+                    return CL_CODING(subject=self, extra=ne)
                 else:
-                    return 'e' + str(ne)
-            return 'i'
+                    return CL_EXON(subject=self, extra=ne)
+            return CL_INTRON(subject=self)
         elif self.strand == 1:
             if self.txstart - updistance <= pos < self.txstart:
-                return 'u'
+                return CL_UPSTREAM(subject=self)
             elif self.txend < pos <= self.txend + dndistance:
-                return 'd'
+                return CL_DNSTREAM(subject=self)
             else:
-                return False
+                return None
         else:
             if self.txstart - dndistance <= pos < self.txstart:
-                return 'd'
+                return CL_DNSTREAM(subject=self)
             elif self.txend < pos <= self.txend + updistance:
-                return 'u'
+                return CL_UPSTREAM(subject=self)
             else:
-                return False
+                return None
             
     def getRegion(self, params):
         """Returns the region for this transcript as (start, end) according to the 'regwanted', 
@@ -846,17 +903,23 @@ class Gene():
         else:
             self.end = transcript.txend
 
-    def classifyPosition(self, position, updistance, dndistance):
-        """Returns a string containing all possible classifications of `position' for the transcript of this gene."""
+    def classifyPosition(self, position, updistance, dndistance, best=False):
+        """Returns all possible classifications of `position' for the transcript of this gene.
+If `best' is True, only returns a single classification, ie the first one to appear in this list: """
         result = []
         for tr in self.transcripts:
             c = tr.classifyPosition(position, updistance, dndistance)
-            if c and c not in result:
-                result.append(c)
+            if c:
+                c.subject = self
+                addClassification(c, result)
         if len(result) == 0:
-            return "o"
+            return [CL_NONE()]
         else:
-            return "".join(sorted(result))
+            sortClassifications(result)
+        if best:
+            return [result[0]]
+        else:
+            return result
 
     def getRegion(self, params):
         """Returns the region for this gene as (start, end) according to the 'regwanted', 

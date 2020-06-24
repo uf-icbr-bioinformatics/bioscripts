@@ -6,6 +6,7 @@ import os.path
 import Utils
 import Script
 import GeneList
+from Regions import RegionSource
 
 # Utils
 
@@ -124,7 +125,7 @@ class Classify(Script.Command):
         stream.write("Total\t{}\t\n".format(tot))
 
     def reportATAC(self, stream):
-        regnames = [ ('Upstream', 'u'), ('Downstream', 'd'), ('Gene body', 'e'), ('Enhancer', 'E'), ('Intergenic', 'o') ]
+        regnames = [ ('Upstream', 'u'), ('Downstream', 'd'), ('Gene body', 'E'), ('Enhancer', 'h'), ('Intergenic', 'o') ]
         if stream == 's':
             stream = self.streams['s']
         stream.write("Class\tNumber\tPercentage\n")
@@ -171,11 +172,9 @@ class Classify(Script.Command):
     def usage(self, P):
         sys.stderr.write("""Usage: genes.py classify [options] chrom:position ... 
 
-Classify the specified chromosome position(s) according to the transcripts they fall in. If
-an argument has the form @filename:col, read regions from column `col' of file `filename'
-(col defaults to 1).
-
-Output consists of 
+Classify the specified chromosome position(s) according to the transcripts or genes they 
+belong to. If an argument has the form @filename:col, read regions from column `col' of 
+file `filename' (col defaults to 1).
 
 Options:
 
@@ -196,21 +195,12 @@ Options:
     def run(self, P):
         maxd = max(P.updistance, P.dndistance)
 
-        regions = []
-        for a in P.args:
-            if a[0] == '@':
-                regs = readRegions(a, payload=P.idcol)
-                for r in regs:
-                    regions.append(r)
-            else:
-                regions.append(a)
-
-        sys.stderr.write("Classifying {} regions.\n".format(len(regions)))
+        RS = RegionSource(P.args)
 
         with Utils.Output(P.outfile) as out:
 
             if P.mode == "a":
-                self.classifyATAC(regions)
+                self.classifyATAC(RS)
                 self.reportATAC(out)
                 return
 
@@ -222,53 +212,56 @@ Options:
                 if P.idcol:
                     hdr += "\t" + P.idname
                 out.write(hdr + "\n")
+                
+            while True:
+                reg = RS.next()
+                if not reg:
+                    break
 
-            for reg in regions:
-                if type(reg).__name__ == 'str':
-                    reg = parseRegion(reg)
-                start = reg[1]
-                end   = reg[2]
+                start = reg.start
+                end   = reg.end
                 pos   = (start + end) / 2
-                genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
+                genes = P.gl.allIntersecting(reg.chrom, start - maxd, end + maxd)
                 if P.mode == "t":
                     for g in genes:
                         for tr in g.transcripts:
                             if (not P.canonical) or tr.canonical:
-                                c = tr.classifyPosition(pos, P.updistance, P.dndistance)
-                                if not c:
-                                    if P.unclassified:
-                                        c = "-"
-                                    else:
-                                        continue
-                                if len(c) > 1:
-                                    exn = c[1:]
-                                    c = c[0]
+                                cls = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                                if cls is None:
+                                    continue
+                                if cls.extra:
+                                    exn = str(cls.extra)
                                 else:
-                                    exn = "-"
-                                if len(reg) == 4:
-                                    extra = "\t" + reg[3]
+                                    exn = ""
+                                if P.idcol:
+                                    extra = "\t" + reg.payload[P.idcol]
                                 else:
                                     extra = ""
-                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg[0], start, end, g.name, tr.ID, tr.accession, c, exn, extra))
+                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg.chrom, start, end, g.name, tr.ID, tr.accession, cls.name, exn, extra))
                 elif P.mode == "g":
+                    allclasses = []
                     for g in genes:
-                        name = g.name
-                        c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                        if not c:
-                            if P.unclassified:
-                                c = "-"
-                            else:
-                                continue
-                        if len(c) > 1:
-                            exn = c[1:]
-                            c = c[0]
+                        cls = g.classifyPosition(pos, P.updistance, P.dndistance)
+                        for cl in cls:
+                            GeneList.addClassification(cl, allclasses)
+                    GeneList.sortClassifications(allclasses)
+                    if not allclasses:
+                        if P.unclassified:
+                            allclasses = [GeneList.CL_NONE(subject=None)]
                         else:
-                            exn = "-"
-                        if len(reg) == 4:
-                            extra = "\t" + reg[3]
+                            continue
+    #                print allclasses
+                    if P.bestonly:
+                        allclasses = [allclasses[0]]
+                    for cls in allclasses:
+                        name = cls.subject.name if cls.subject else "-"
+                        gid  = cls.subject.ID if cls.subject else "-"
+                        exn  = cls.extra or "-"
+
+                        if P.addBedFields:
+                            out.write("\t".join(reg.payload) + "\t{}\t{}\t{}\t{}\n".format(name, gid, cls.name, exn))
                         else:
-                            extra = ""
-                        out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg[0], start, end, g.name, g.ID, c, exn, extra))
+                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg.chrom, start, end, name, gid, cls.name, exn))
                 elif P.mode == "s":
                     if len(genes) == 0:
                         self.add('o')
@@ -276,7 +269,7 @@ Options:
                         for g in genes:
                             c = g.classifyPosition(pos, P.updistance, P.dndistance)
                             for x in c:
-                                self.add(x[0])
+                                self.add(x.name)
                 elif P.mode == "st":
                     if len(genes) == 0:
                         self.add('o')
@@ -286,14 +279,15 @@ Options:
                                 c = tr.classifyPosition(pos, P.updistance, P.dndistance)
                                 if c:
                                     for x in c:
-                                        self.add(x[0])
+                                        self.add(x.name)
                                 else:
                                     self.add('o')
 
             if "s" in P.mode:
                 self.report(out)
 
-    def classifyATAC(self, regions):
+    def classifyATAC(self, regsource):
+        self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0, 'h': 0}
         E = GeneList.Genelist()
         with open(P.enhancers, "r") as f:
             c = csv.reader(f, delimiter="\t")
@@ -313,28 +307,34 @@ Options:
         sys.stderr.write("{} enhancers read.\n".format(E.ngenes))
 
         maxd = max(P.updistance, P.dndistance)
-        for reg in regions:
-            if type(reg).__name__ == 'str':
-                reg = parseRegion(reg)
-            start = reg[1]
-            end   = reg[2]
+
+        while True:
+            reg = regsource.next()
+            if not reg:
+                break
+            if not reg.chrom:
+                continue
+            start = reg.start
+            end   = reg.end
             pos   = (start + end) / 2
-            genes = P.gl.allIntersecting(reg[0], start - maxd, end + maxd)
-            enhs  = E.allIntersecting(reg[0], pos, pos+1)
+            genes = P.gl.allIntersecting(reg.chrom, start - maxd, end + maxd)
+            enhs  = E.allIntersecting(reg.chrom, pos, pos+1)
             gclass = ""
+            allclasses = []
             for g in genes:
-                c = g.classifyPosition(pos, P.updistance, P.dndistance)
-                gclass += c
-            if "u" in gclass:
-                self.add("u")
-            elif "d" in gclass:
-                self.add("d")
-            elif enhs:
-                self.add("E")   # Here represents enhancer
-            elif "E" in gclass or "e" in gclass or "i" in gclass:
-                self.add("e")   # Here represents gene body
-            else:
-                self.add("o")
+                cls = g.classifyPosition(pos, P.updistance, P.dndistance)
+                for cl in cls:
+                    GeneList.addClassification(cl, allclasses)
+            if enhs:
+                GeneList.addClassification(GeneList.CL_ENHANCER(), allclasses)
+            GeneList.sortClassifications(allclasses)
+            if P.bestonly:
+                allclasses = [allclasses[0]]
+            for a in allclasses:
+                self.add(a.name)
+        # For ATAC, we don't care about introns/exons - we lump all into Gene Body.
+        self.totals['E'] = self.totals['E'] + self.totals['e'] + self.totals['i']
+        return
 
 class Region(Script.Command):
     _cmd = "region"
@@ -395,6 +395,8 @@ Options:
                 if gene:
                     reg = gene.getRegion(P)
                     if not reg:
+                        continue
+                    if P.codingOnly and gene.biotype != "protein_coding":
                         continue
                     (start, end) = reg
                     if P.oformat == "c":
@@ -560,7 +562,7 @@ per the `classify' command, and written to the appropriate output file.
                     for g in genes:
                         c = g.classifyPosition(pos, P.updistance, P.dndistance)
                         for x in c:
-                            C.writeLine(x, line)
+                            C.writeLine(x.name, line)
             C.closeStreams()
             C.report('s')
 
@@ -579,7 +581,7 @@ the gene/transcript rather than the closest point.
 Each `spec' can be a position (chrom:pos), a region (chrom:start-end), or a file 
 specification of the form @filename:col, in which case regions are read from filename, 
 assuming that the chromosome is in  column `col' (defaulting to 1) and start and end 
-positions are in the two next columns.
+positions are in the two next columns. Lines starting with `#' are ignored.
 
 If a region was read from the command-line, output consists of the following 
 tab-separated fields:
@@ -590,6 +592,7 @@ If regions are read from a file, output consist of each line of the input
 file followed by distance from nearest gene, gene ID, name of gene, strand.
 
 Output is written to standard ouptut, unless an output file is specified with -o.
+
 """)
     
     def run(self, P):
@@ -604,7 +607,8 @@ Output is written to standard ouptut, unless an output file is specified with -o
             with P.gl:
                 for a in P.args:
                     if a[0] == '@':
-                        (nin, nout) = self.runFile(a[1:], out, transcripts=transcript, biotype=biotype, canonical=P.canonical)
+                        filename = P.parseFilename(a[1:]) # this sets idcol if specified
+                        (nin, nout) = self.runFile(filename, out, transcripts=transcript, biotype=biotype, canonical=P.canonical)
                     else:
                         regions.append(parseRegion(a))
 
@@ -626,13 +630,16 @@ Output is written to standard ouptut, unless an output file is specified with -o
             P.errmsg(P.NOFILE)
         nin = 0
         nout = 0
+        chrcol = P.idcol
+        startc = P.idcol + 1
+        endc   = P.idcol + 2
         with open(infile, "r") as f:
             c = csv.reader(f, delimiter='\t')
             for line in c:
                 if line[0][0] == '#':
                     continue
                 nin += 1
-                (ID, dist) = P.gl.findClosestGene(line[0], int(line[1]), int(line[2]), transcripts=transcripts, biotype=biotype, canonical=canonical, tss=P.tss)
+                (ID, dist) = P.gl.findClosestGene(line[chrcol], int(line[startc]), int(line[endc]), transcripts=transcripts, biotype=biotype, canonical=canonical, tss=P.tss)
                 if ID:
                     nout += 1
                     if transcripts:
@@ -736,6 +743,7 @@ class Prog(Script.Script):
     canonical = False           # If True (-ca) only look at canonical transcript for each gene in Closest or Classify
     tss = False                 # If True (-ts) use TSS as reference point for distances in Closest
     unclassified = True         # If True, display regions that have no classification. -X disables this.
+    bestonly = False            # If True, display best classification only (-b)
     enhancers = ""
 
     def parseArgs(self, args):
@@ -813,6 +821,8 @@ class Prog(Script.Script):
                 self.tss = True
             elif a == "-X":
                 self.unclassified = False
+            elif a == "-B":
+                self.bestonly = True
             elif cmd:
                 self.args.append(a)
             else:
@@ -822,6 +832,14 @@ class Prog(Script.Script):
         if not self.source:
             P.errmsg(self.BADSRC)
         return cmd
+
+    def parseFilename(self, filename):
+        if ":" in filename:
+            parts = filename.split(":")
+            self.idcol = int(parts[1]) - 1
+            return parts[0]
+        else:
+            return filename
 
 P = Prog("genes.py", version="1.0", usage=usage, 
          errors=[('BADSRC', 'Missing gene database'),

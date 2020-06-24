@@ -57,7 +57,7 @@ Notes:
             else:
                 self.fastafile = a
 
-    def loadReference(chrom):
+    def loadReference(self, chrom):
         chromlen = 0
         startpos = 0
         fai = self.fastafile + ".fai"
@@ -84,7 +84,7 @@ Notes:
                     break
                 line = line.rstrip("\n")
                 for ch in line:
-                    ref[idx] = ch.upper()
+                    self.ref[idx] = ch.upper()
                     idx += 1
         return self.ref
 

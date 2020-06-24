@@ -4,6 +4,7 @@ import sys
 import math
 import os.path
 import pysam
+from Script import Script
 
 class BAMflagAnalyzer():
     infiles = []
@@ -57,7 +58,7 @@ class BAMflagAnalyzer():
             c = self.counts[b[0]]
             sys.stdout.write("{:14} {:10d} ({:.2f}%)\n".format(b[0] + ":", c, 100.0 * c / self.nreads))
 
-class BAManalyzer():
+class BAManalyzer(Script):
     infiles = []
     nreadsin = 0
     sumlen = 0
@@ -67,7 +68,7 @@ class BAManalyzer():
     howmany = 1000
     skip = 10
 
-    def usage(self):
+    def usage(self, what=None):
         sys.stdout.write("""bamreadlen.py - Determine read length from BAM file.
 
 Usage: bamreadlen.py [options] bamfiles...
@@ -83,9 +84,24 @@ examine one read every 10, until 1000 reads are reached in each file. Options:
          'min' or 'max' (shortest or longest read respectively) or 'all'
          (all three values on separate lines).
 
-""")
+""".format(self.howmany, self.skip))
 
-    def parseArgs(self, args):
+    def initialize(self, args):
+        self.standardOpts(args)
+        self.parseArgs(args, "+#n,+#s,+m")
+        if self.getOpt("n"):
+            self.howmany = self.getOpt("n")
+        if self.getOpt("s"):
+            self.skip = self.getOpt("s")
+        if self.getOpt("m"):
+            self.mode = self.getOpt("m")
+        self.infiles = self.getArgs()
+        if self.infiles:
+            return True
+        else:
+            return self.usage()
+
+    def OLDparseArgs(self, args):
         if "-h" in args:
             return self.usage()
         prev = ""
@@ -146,9 +162,9 @@ if __name__ == "__main__":
     cmd = os.path.split(sys.argv[0])[1]
     args = sys.argv[1:]
     if cmd == "bamreadlen.py":
-        B = BAManalyzer()
-        B.parseArgs(args)
-        B.getReadlen()
+        B = BAManalyzer("bamreadlen.py", version="1.0", usage=BAManalyzer.usage)
+        if B.initialize(args):
+            B.getReadlen()
     elif cmd == "bamstats.py":
         B = BAMflagAnalyzer()
         B.parseArgs(args)

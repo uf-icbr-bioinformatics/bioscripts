@@ -21,13 +21,16 @@ import csv
 import math
 import ercc
 import os.path
+import scipy.stats
 import Utils
 import Script
 
 def usage(what=None):
+
+
     progname = os.path.basename(sys.argv[0])
     if what == 'matrix':
-        sys.stderr.write("""Usage: {} matrix [options] files...
+        sys.stdout.write("""Usage: {} matrix [options] files...
 
 Combine columns from multiple files into a single data matrix. This command is equivalent to 
 rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options:
@@ -47,7 +50,7 @@ rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options
 """.format(progname))
 
     elif what == 'merge':
-        sys.stderr.write("""Usage: {} merge labels...
+        sys.stdout.write("""Usage: {} merge labels...
 
 Combine the log2(FC) values for the differentially expressed genes and isoforms for the specified 
 labels into two single files. Options:
@@ -58,7 +61,7 @@ labels into two single files. Options:
 """.format(progname))
 
     elif what == 'sort':
-        sys.stderr.write("""Usage: {} sort [options] filename
+        sys.stdout.write("""Usage: {} sort [options] filename
 
 Sort items from `filename' according to the average value(s) in one or
 more specified columns. Options:
@@ -69,9 +72,19 @@ more specified columns. Options:
   -t T          | Output only the top T % of genes (default: {}).
 
 """.format(progname, GeneSorter.idcol + 1, GeneSorter.topperc))
+    elif what == 'extract':
+        sys.stdour.write("""Usage: {} extract [options] datafile filenames...
+
+Extract rows from `datafile' corresponding to all IDs found in `filenames' (removing duplicates)."
+
+Options:
+
+  -o O | Write output to file O (default: standard output).
+
+""".format(progname))
 
     else:
-        sys.stderr.write("""Usage: {} command [args...]
+        sys.stdout.write("""Usage: {} command [args...]
 
 where command is one of:
 
@@ -85,7 +98,7 @@ Call with command and no arguments to get help about a specific command.
 """.format(progname))
 
 S = Script.Script("rnaseqtools.py", version="1.0", usage=usage,
-                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, matrix, allexp, sort.')])
+                  errors=[('NOCMD', 'Missing command', 'The first argument should be one of: merge, matrix, allexp, extract, sort.')])
 
 # Utils
 
@@ -534,6 +547,46 @@ the identifier in the first column is in the set `ids'."""
     def run(self):
         self.merge()
 
+### ExtractRows
+
+class ExtractRows():
+    datafile = ""
+    wantedfiles = []
+    outfile = "/dev/stdout"
+
+    def __init__(self):
+        self.wantedfiles = []
+
+    def parseArgs(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a in ["-o"]:
+                prev = a
+            elif self.datafile:
+                self.wantedfiles.append(a)
+            else:
+                self.datafile = a
+        if not self.wantedfiles:
+            S.usage("extract")
+
+    def run(self):
+        wanted = []
+        for wf in self.wantedfiles:
+            with open(wf, "r") as f:
+                for line in Utils.CSVreader(f):
+                    gid = line[0]
+                    if gid not in wanted:
+                        wanted.append(gid)
+        sys.stderr.write("{} genes to extract.\n".format(len(wanted)))
+        with open(self.outfile, "w") as out, open(self.datafile, "r") as f:
+            out.write(f.readline()) # Copy header (*** make this an option)
+            for line in Utils.CSVreader(f):
+                if line[0] in wanted:
+                    out.write("\t".join(line) + "\n")
+
 ### ExpMerger
 
 class ExpMerger():
@@ -697,7 +750,49 @@ ignoring out of bounds errors and fields that don't contain numbers."""
                 self.doSort(out)
         else:
             self.doSort(sys.stdout)
-    
+
+class Ttester(object):
+    filename = ""
+    range1 = None
+    range2 = None
+    outfile = "/dev/stdout"
+
+    def parseArgs(self, args):
+        self.filename = args[0]
+        self.range1 = self.parseRange(args[1])
+        self.range2 = self.parseRange(args[2])
+        return True
+
+    def parseRange(self, r):
+        if "+" in r:
+            parts = r.split("+")
+            a = int(parts[0])
+            b = int(parts[1])
+            return range(a, a+b)
+        elif "-" in r:
+            parts = r.split("+")
+            a = int(parts[0])
+            b = int(parts[1])
+            return range(a, a+b)
+        else:
+            return [int(r)]
+
+    def run(self):
+        with open(self.outfile, "w") as out, open(self.filename, "r") as f:
+            out.write("Gene\tAvg1\tAvg2\tLog2FC\tP-value\n")
+            f.readline()        # skip header
+            c = csv.reader(f, delimiter='\t')
+            for line in c:
+                gid = line[0]
+                vals1 = [ float(line[i]) for i in self.range1 ]
+                vals2 = [ float(line[i]) for i in self.range2 ]
+                avg1 = sum(vals1) / len(vals1)
+                avg2 = sum(vals2) / len(vals2)
+                if avg1 != 0.0 and avg2 != 0.0:
+                    log2fc = math.log(avg1 / avg2, 2.0)
+                    (ttest, pval) = scipy.stats.ttest_ind(vals1, vals2)
+                    out.write("{}\t{}\t{}\t{}\t{}\n".format(gid, avg1, avg2, log2fc, pval))
+
 ### Main
 
 def parseArgs(cmd, args):
@@ -709,6 +804,10 @@ def parseArgs(cmd, args):
         P = ExpMerger()
     elif cmd == 'sort':
         P = GeneSorter()
+    elif cmd == 'extract':
+        P = ExtractRows()
+    elif cmd == 'ttest':
+        P = Ttester()
     else:
         return S.usage()
     P.parseArgs(args)
