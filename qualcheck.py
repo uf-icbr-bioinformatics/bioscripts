@@ -21,6 +21,8 @@ class Stats(object):
         self.filename = filename
 
     def add(self, quals):
+        if not quals:
+            return
         nb = 0                  # number of bases in this read
         sq = 0                  # sum of qualities in this read
 
@@ -130,7 +132,7 @@ class Main(Script.Script):
         else:
             usage()
 
-def usage():
+def usage(what):
     sys.stdout.write("""qualcheck.py - Compute quality stats on fastq files.
 
 Usage: qualcheck.py [options] fastqfiles...
