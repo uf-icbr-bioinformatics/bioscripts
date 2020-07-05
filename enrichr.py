@@ -14,14 +14,17 @@ class Enrichr(Script.Script):
     description = "Generic gene list"
     setid = None
     libraries = []
-    outfile = None
+    outfile = "/dev/stdout"
     html = None                 # HTML output?
+    barchart = None
     pval = 1
     qval = 1
     zscore = 0
     cscore = 0
     maxrank = None
-
+    cssfile = None
+    css = """BODY {font-family: arial}"""
+    
     def parseArgs(self, args):
         self.standardOpts(args)
         self.command = args[0]
@@ -70,6 +73,8 @@ class Enrichr(Script.Script):
                     next = a
                 elif a == "-H":
                     self.html = True
+                elif a == "-b":
+                    self.barchart = True
                 elif self.setid:
                     self.libraries.append(a)
                 else:
@@ -97,8 +102,9 @@ class Enrichr(Script.Script):
         genestr = "\n".join(genes)
         payload = { 'list': (None, genestr),
                     'description': (None, description) }
-
+#        print payload
         response = requests.post(self.ENRICHR_URL + "addList", files=payload)
+#        print response
         if not response.ok:
             self.errmsg(self.BADCOMM)
 
@@ -107,14 +113,37 @@ class Enrichr(Script.Script):
 
     def getEnrichment(self, userListId, library):
         query_string = 'enrich?userListId={}&backgroundType={}'
-        response = requests.get(self.ENRICHR_URL + query_string.format(userListId, library))
-        #print response.text
+        req = self.ENRICHR_URL + query_string.format(userListId, library)
+#        print req
+        response = requests.get(req)
+#        print response.text
         if not response.ok:
             self.errmsg(self.BADCOMM)
 
         data = json.loads(response.text)
         return data
 
+    # HTML utils
+
+    def writeHead(self, out):
+        if self.cssfile:
+            with open(self.cssfile, "r") as f:
+                self.css = f.read()
+        out.write("""<!DOCTYPE html>
+<HTML>
+  <HEAD>
+    <TITLE>Enrichr Output</TITLE>
+    <STYLE>
+{}
+    </STYLE>
+  </HEAD>
+  <BODY>""".format(self.css))
+
+    def writeTail(self, out):
+        out.write("""  </BODY>
+</HTML>
+""")
+        
     # Top-level commands
 
     def doUpload(self):
@@ -123,15 +152,16 @@ class Enrichr(Script.Script):
         sys.stdout.write("{}\n".format(result['userListId']))
 
     def doRun(self):
-        if self.outfile:
-            with open(self.outfile, "w") as out:
+        with open(self.outfile, "w") as out:
+            if self.barchart:
+                self.writeBarChart(out)
+            else:
                 self.writeEnrichment(out)
-        else:
-            self.writeEnrichment(sys.stdout)
 
     def writeEnrichment(self, out):
         headers = ["Library", "Rank", "Term", "P-value", "Q-value", "Z-score", "Combined score", "Overlapping genes"]
         if self.html:
+            self.writeHead(out)
             out.write("<TABLE class='enr-table'>\n  <TR class='enr-header-row'>\n")
             for h in headers:
                 out.write("    <TH class='enr-header'>" + h + "</TH>\n")
@@ -156,7 +186,39 @@ class Enrichr(Script.Script):
                     out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(lib, row[0], row[1], row[2], row[6], row[3], row[4], ",".join(row[5])))
         if self.html:
             out.write("</TABLE>\n")
+            self.writeTail(out)
 
+    def writeBarChart(self, out):
+        self.writeHead(out)
+        for lib in self.libraries:
+            result = self.getEnrichment(self.setid, lib)
+            self.writeBarTable(out, lib, result[lib])
+        self.writeTail(out)
+
+    def writeBarTable(self, out, lib, rows):
+        maxscore = 0
+        goodrows = []
+        for row in rows:
+            if self.maxrank and row[0] > self.maxrank:
+                break       # More than wanted number of results
+            if (row[2] > self.pval or row[6] > self.qval):
+                continue        # P-value too high
+            if (abs(row[3]) < self.zscore or row[4] < self.cscore):
+                continue
+            goodrows.append(row)
+            maxscore = max(maxscore, row[4])
+            
+        out.write("""<CENTER><H1>{}</H1>\n""".format(lib))
+        out.write("""<TABLE width='80%' style='border: 2px solid black; margin: 10px; padding: 10px'>\n""")
+        for row in goodrows:
+            perc = int(100.0 * row[4] / maxscore)
+            out.write("""  <TR>
+    <TD style='border: 5px solid white; padding: 10px; background: linear-gradient(to right, #FF0000 {}%, #FFFFFF 0%);' nowrap>{}</TD>
+    <TD align='right'>{:.1f}</TD>
+  </TR>
+""".format(perc, row[1], row[4]))
+        out.write("""</CENTER>\n""")
+            
     def usage(self, what=None):
         if what == "upload":
             sys.stderr.write("""enrichr.py - Command-line interface to the Enrichr website
