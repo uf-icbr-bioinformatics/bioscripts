@@ -4,6 +4,12 @@ import sys
 import os.path
 import Utils
 
+def getOptPrefix(opt):
+    for i in range(len(opt)):
+        if opt[i] not in "+*#%.":
+            return (opt[:i], opt[i:])
+    return ("", opt)
+
 ### Class to define subcommands in program
 
 class Command():
@@ -152,11 +158,15 @@ and the following one (if any). Otherwise, returns None."""
         """Parse the supplied list of arguments `args' according to `specs', a comma-delimited
 list of strings such as the following:
 
-  `o'  - An option called -o taking no arguments, ie a switch (if present, its value will be True);
-  `+o' - An option called -o taking a single argument;
+  `o'   - An option called -o taking no arguments, ie a switch (if present, its value will be True);
+  `+o'  - An option called -o taking a single argument;
   `+#o' - An option called -o taking a single argument, converted to integer;
-  `*o' - An option called -o taking multiple arguments (stored as a list);
-  `*#o' - An option called -o taking multiple arguments, converted to integers (stored as a list).
+  `+.o' - An option called -o taking a single argument, converted to float;
+  `+%o' - An option called -o taking a single argument, expressed as a percentage;
+  `*o'  - An option called -o taking multiple arguments (stored as a list);
+  `*#o' - An option called -o taking multiple arguments, converted to integers (stored as a list);
+  `*.o' - An option called -o taking multiple arguments, converted to float (stored as a list);
+  `*%o' - An option called -o taking multiple arguments, expressed as a percentage (stored as a list).
 
 Option values are stored in the _options dictionary and can be retrieved with the getOpt() method.
 All other command-line arguments are stored in the _arguments list and can be retrieved with the
@@ -167,40 +177,44 @@ getArgs() method.
         self._options = {}
         for opt in wanted.keys():
             m = wanted[opt]
-            if m == 0:
+            if m == "":
                 self._options[opt] = False
-            elif m == 1:
+            elif "+" in m:
                 self._options[opt] = None
-            elif m == 2:
+            elif "*" in m:
                 self._options[opt] = []
 
-        mode = None
+        mode = ""
         prev = ""
         for a in args:
-            if a[0] == '-' and mode != 1:
+            if a == '--':
+                mode = ""
+                prev = ""
+            elif a[0] == '-' and "+" not in mode:
                 opt = a[1:]
                 if opt in wanted:
                     mode = wanted[opt]
-                    if mode == 0:
+                    if mode == "":
                         self._options[opt] = True
-                        mode = None
+                        mode = ""
                     else:
                         prev = opt
                 else:
                     sys.stderr.write("Warning: unknown option `{}'.\n".format(opt))
             elif prev:
-                if mode == 1:
+                if "#" in mode:
+                    a = self.toInt(a)
+                elif "." in mode:
+                    a = self.toFloat(a)
+                elif "%" in mode:
+                    a = self.toFloat(a) / 100.0
+
+                if "+" in mode:
                     self._options[prev] = a
-                    mode = None
+                    mode = ""
                     prev = ""
-                elif mode == 2:
-                    self._options[prev] = self.toInt(a)
-                    mode = None
-                    prev = ""
-                elif mode == 3:
+                elif "*" in mode:
                     self._options[prev].append(a)
-                elif mode == 4:
-                    self._options[prev].append(self.toInt(a))
             else:
                 self._arguments.append(a)
 
@@ -208,20 +222,22 @@ getArgs() method.
         specs = specstring.split(",")
         wanted = {}
         for s in specs:
-            mode = 0
-            if s[0] == "+":
-                mode = 1
-                s = s[1:]
-                if s[0] == "#":
-                    mode = 2
-                    s = s[1:]
-            elif s[0] =="*":
-                mode = 3
-                s = s[1:]
-                if s[0] == "#":
-                    mode = 4
-                    s = s[1:]
-            wanted[s] = mode
+            (mode, opt) = getOptPrefix(s)
+            wanted[opt] = mode
+            # mode = 0
+            # if s[0] == "+":
+            #     mode = 1
+            #     s = s[1:]
+            #     if s[0] == "#":
+            #         mode = 2
+            #         s = s[1:]
+            # elif s[0] =="*":
+            #     mode = 3
+            #     s = s[1:]
+            #     if s[0] == "#":
+            #         mode = 4
+            #         s = s[1:]
+            # wanted[s] = mode
         return wanted
 
     def toInt(self, x, units=False):
