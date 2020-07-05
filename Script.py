@@ -145,11 +145,11 @@ and the following one (if any). Otherwise, returns None."""
             
     # Standardized argument parsing
 
-    def getOpt(self, opt):
+    def getOpt(self, opt, default=None):
         if opt in self._options:
-            return self._options[opt]
+            return self._options[opt] or default
         else:
-            return None
+            return default
 
     def getArgs(self):
         return self._arguments
@@ -175,6 +175,7 @@ getArgs() method.
         wanted = self._parseArgspecs(specs)
         self._arguments = []
         self._options = {}
+        self._cmd = None
         for opt in wanted.keys():
             m = wanted[opt]
             if m == "":
