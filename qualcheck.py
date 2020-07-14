@@ -94,7 +94,7 @@ class Main(Script.Script):
         self.standardOpts(args)
         self.parseArgs(args, "+n,+o")
         self.outfile = self.getOpt("o")
-        self.maxreads = int(self.getOpt("n") or 0)
+        self.maxreads = int(self.getOpt("n", 0))
         self.fastqfiles = self.getArgs()
 
         if self.fastqfiles:

@@ -446,6 +446,7 @@ class Averager(Script.Command):
                 self.matfile2 = P.isFile(a)
             elif self.outfile == None:
                 self.outfile = a
+        return (self.matfile1 and self.matfile2)
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.
@@ -703,6 +704,7 @@ class DMR(Script.Command):
                 self.bedfile2 = P.isFile(a)
         if self.bedfile1 == None or self.bedfile2 == None:
             P.errmsg(P.NOFILE)
+        return True
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.
@@ -962,6 +964,7 @@ class DMR2(Script.Command):
                 self.bedfile2 = P.isFile(a)
         if self.bedfile1 == None or self.bedfile2 == None:
             P.errmsg(P.NOFILE)
+        return True
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.

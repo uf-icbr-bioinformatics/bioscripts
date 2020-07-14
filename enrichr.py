@@ -2,6 +2,7 @@
 
 import sys
 import json
+import math
 import requests
 
 import Utils
@@ -174,6 +175,67 @@ LIBS = ["Genes_Associated_with_NIH_Grants",
         "WikiPathways_2019_Human",
         "WikiPathways_2019_Mouse"]
 
+def sortResults(results, key):
+    """Sort the list of results according to `key', one of: p, q, z, c."""
+    for res in results.values():
+        if key == 'p':
+            res.sort(key=lambda e: e[2])
+        elif key == 'q':
+            res.sort(key=lambda e: e[6])
+        elif key == 'z':
+            res.sort(key=lambda e: e[3], reverse=True)
+        elif key == 'c':
+            res.sort(key=lambda e: e[4], reverse=True)
+
+class EnEntry(object):
+    rank = 0
+    term = ""
+    pvalue = None
+    qvalue = None
+    zscore = None
+    cscore = None
+    genes = []
+    key = None
+
+    def __init__(self, row):
+        self.rank = row[0]
+        self.term = row[1]
+        self.pvalue = row[2]
+        self.qvalue = row[6]
+        self.zscore = row[3]
+        self.cscore = row[4]
+        self.genes = row[5]
+
+    def setKey(self, key):
+        if key == 'p':
+            self.key = -math.log(self.pvalue, 10.0)
+        elif key == 'q':
+            self.key = -math.log(self.qvalue, 10.0)
+        elif key == 'z':
+            self.key = self.zscore
+        elif key == 'c':
+            self.key = self.cscore
+
+class EnSet(object):
+    lib = ""
+    entries = []
+
+    def __init__(self, lib):
+        self.lib = lib
+        self.entries = []
+        
+    def add(self, entry):
+        self.entries.append(entry)
+        
+    def setKey(self, key):
+        for e in self.entries:
+            e.setKey(key)
+        self.entries.sort(key=lambda e: e.key, reverse=True)
+        
+    def getMaxScore(self):
+#        sys.stderr.write("{}\n".format( [e.key for e in self.entries] ))
+        return max([e.key for e in self.entries])
+
 class Enrichr(Script.Script):
     ENRICHR_URL = 'http://amp.pharm.mssm.edu/Enrichr/'
     genes = []
@@ -184,13 +246,20 @@ class Enrichr(Script.Script):
     outfile = "/dev/stdout"
     html = None                 # HTML output?
     barchart = None
+    barcolor = "FF0000"
+    barchart_var = "c"          # one of p, q, z, c
+    barchart_value = None       # or one of p, q, z, c
+    sortby = 'p'                # or one of p, q, z, c
     pval = 1
     qval = 1
     zscore = 0
     cscore = 0
     maxrank = None
     cssfile = None
-    css = """BODY {font-family: arial}"""
+    css = """BODY {font-family: arial; font-size: 32pt}
+.tab {border: 2px solid black; margin: 10px; padding: 5px}
+.bar {border: 5px solid white; padding: 5px}
+"""
     
     def parseCmdline(self, args):
         self.standardOpts(args)
@@ -211,9 +280,10 @@ class Enrichr(Script.Script):
                 self.addGenesFromStdin()
 
         elif self.command == "run":
-            self.parseArgs(args, "+o,+#n,+.p,+.q,+.z,+.c,+u,H,b")
+            self.parseArgs(args, "+o,+#n,+.p,+.q,+.z,+.c,+u,+s,H,b,+bc,+bv")
             self.outfile = self.getOpt("o", self.outfile)
             self.maxrank = self.getOpt("n")
+            self.sortby  = self.getOpt("s", 'p')
             self.pval    = self.getOpt("p", self.pval)
             self.qval    = self.getOpt("q", self.qval)
             self.zscore  = self.getOpt("z", self.zscore)
@@ -221,6 +291,8 @@ class Enrichr(Script.Script):
             self.ENRICHR_URL = self.getOpt("u", self.ENRICHR_URL)
             self.html    = self.getOpt("H")
             self.barchart = self.getOpt("b")
+            self.barcolor = self.getOpt("bc", self.barcolor)
+            self.barchart_value = self.getOpt("bv")
             theArgs = self.getArgs()
             if len(theArgs) > 0:
                 self.setid = self.getArgs()[0]
@@ -265,12 +337,27 @@ class Enrichr(Script.Script):
         req = self.ENRICHR_URL + query_string.format(userListId, library)
 #        print req
         response = requests.get(req)
-#        print response.text
+#        sys.stderr.write("{}\n".format(response.text))
         if not response.ok:
             self.errmsg(self.BADCOMM)
 
         data = json.loads(response.text)
-        return data
+        ES = EnSet(data)
+        
+        nr = 0
+        for row in data[library]:
+            if self.maxrank and nr > self.maxrank:
+                break       # More than wanted number of results
+            E = EnEntry(row)
+            if (E.pvalue > self.pval or E.qvalue > self.qval):
+                continue        # P-value too high
+            if (abs(E.zscore) < self.zscore or E.cscore < self.cscore):
+                continue
+            ES.add(E)
+            nr += 1
+
+        ES.setKey(self.sortby)
+        return ES
 
     # HTML utils
 
@@ -320,19 +407,13 @@ class Enrichr(Script.Script):
 
         for lib in self.libraries:
             result = self.getEnrichment(self.setid, lib)
-            for row in result[lib]:
-                if self.maxrank and row[0] > self.maxrank:
-                    break       # More than wanted number of results
-                if (row[2] > self.pval or row[6] > self.qval):
-                    continue        # P-value too high
-                if (abs(row[3]) < self.zscore or row[4] < self.cscore):
-                    continue
+            for e in result.entries:
                 if self.html:
                     out.write("  <TR class='enr-row'>")
-                    out.write("<TD class='enr-text>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-text'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-text'>{}</TD>\n".format(lib, row[0], row[1], row[2], row[6], row[3], row[4], ",".join(row[5])))
+                    out.write("<TD class='enr-text'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-text'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-num'>{}</TD><TD class='enr-text'>{}</TD>\n".format(lib, e.rank, e.term, e.pvalue, e.qvalue, e.zscore, e.cscore, ",".join(e.genes)))
                     out.write("  </TR>\n")
                 else:
-                    out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(lib, row[0], row[1], row[2], row[6], row[3], row[4], ",".join(row[5])))
+                    out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(lib, e.rank, e.term, e.pvalue, e.qvalue, e.zscore, e.cscore, ",".join(e.genes)))
         if self.html:
             out.write("</TABLE>\n")
             self.writeTail(out)
@@ -341,32 +422,31 @@ class Enrichr(Script.Script):
         self.writeHead(out)
         for lib in self.libraries:
             result = self.getEnrichment(self.setid, lib)
-            self.writeBarTable(out, lib, result[lib])
+            self.writeBarTable(out, lib, result)
         self.writeTail(out)
 
-    def writeBarTable(self, out, lib, rows):
+    def writeBarTable(self, out, lib, result):
         maxscore = 0
         goodrows = []
-        for row in rows:
-            if self.maxrank and row[0] > self.maxrank:
-                break       # More than wanted number of results
-            if (row[2] > self.pval or row[6] > self.qval):
-                continue        # P-value too high
-            if (abs(row[3]) < self.zscore or row[4] < self.cscore):
-                continue
-            goodrows.append(row)
-            maxscore = max(maxscore, row[4])
-            
+        valcol = False
+        if self.barchart_value:
+            try:
+                valcol = {'p': 2, 'q': 6, 'q': 3, 'z': 4}[self.barchart_value]
+            except KeyError:
+                pass
+
+        maxscore = result.getMaxScore()
+#        sys.stderr.write("Maxscore = {}\n".format(maxscore))
         out.write("""<CENTER><H1>{}</H1>\n""".format(lib))
-        out.write("""<TABLE width='80%' style='border: 2px solid black; margin: 10px; padding: 10px'>\n""")
-        for row in goodrows:
-            perc = int(100.0 * row[4] / maxscore)
+        out.write("""<TABLE width='80%' class='tab'>\n""")
+        for e in result.entries:
+            perc = int(100.0 * e.key / maxscore)
+#            sys.stderr.write("{} => {}\n".format(e.key, perc))
             out.write("""  <TR>
-    <TD style='border: 5px solid white; padding: 10px; background: linear-gradient(to right, #FF0000 {}%, #FFFFFF 0%);' nowrap>{}</TD>
-    <TD align='right'>{:.1f}</TD>
+    <TD class='bar' style='background: linear-gradient(to right, #{} {}%, #FFFFFF 0%);' nowrap>{}</TD>
   </TR>
-""".format(perc, row[1], row[4]))
-        out.write("""</CENTER>\n""")
+""".format(self.barcolor, perc, e.term))
+        out.write("""</TABLE></CENTER>\n""")
 
     def doList(self):
         for lib in LIBS:
@@ -407,19 +487,22 @@ Output (written to standard output, or to a file if -o is specified is tab-delim
 following columns: library, rank, term name, P-value, Z score, combined score, overlapping genes.
 See the Enrichr documentation for a description of these values. If multiple libraries are 
 specified, the respective results will be concatenated in the same output; use the library id
-in the first column to distinguish the different groups.
+in the first column to distinguish the different groups. If -H is specified, the table is written
+in HTML format instead of tab-delimited.
 
 Options:
 
   -o O | Write output to file O (default: stdout)
   -H   | Write output as HTML instead of tab-delimited
+  -b   | Produce a barchart in HTML format (written to destination specified with -o)
+  -s S | Sort results by S, one of p=pvalue, q=qvalue, z=zscore, c=combined score (default: {}).
   -p P | Only return terms with P-value less than or equal to P (default: {})
   -q Q | Only return terms with q-score (BH-corrected P-value) less than or equal to Q (default: {})
   -z Z | Only return terms with Z-score greater than Z (default: {})
   -c C | Only return terms with combined score greater than C (default: {})
   -n N | Only return the top N terms (default: no limit)
 
-""".format(self.pval, self.qval, self.zscore, self.cscore))
+""".format(self.sortby, self.pval, self.qval, self.zscore, self.cscore))
 
         elif what == "list":
             sys.stdout.write("""enrichr.py - Command-line interface to the Enrichr website
@@ -449,19 +532,22 @@ General options:
 
 """)
 
+    def main(self):
+        try:
+            {"upload": self.doUpload,
+             "run": self.doRun,
+             "list": self.doList }[self.command]()
+        except KeyError:
+            self.errmsg(self.BADCMD)
+
 if __name__ == "__main__":
     E = Enrichr("enrichr.py", version="1.0", usage=Enrichr.usage,
                 errors=[('NOSETID', 'Missing set id', "The first argument to the run command should be a set ID created with the upload command."),
                         ('NOLIBS', 'Missing libraries', "Please specify at least one Enrichr library name after the set ID."),
                         ('BADLIB', 'Bad library name', "{} is not a valid Enrichr library name. Use the list command to display all libraries."),
                         ('BADCOMM', 'Communication error', "Error communicating with the Enrichr server."),
+                        ('BADCMD', 'Bad command', "The first argument should be one of: upload, run, list.")
 ])
 
     E.parseCmdline(sys.argv[1:])
-    if E.command == "upload":
-        E.doUpload()
-    elif E.command == "run":
-        E.doRun()
-    elif E.command == "list":
-        E.doList()
-
+    E.main()
