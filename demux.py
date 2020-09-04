@@ -11,10 +11,10 @@ def usage(what=None):
     sys.stderr.write("""demux.py - {}
 
 Usage: demux.py detect [options] fastq
-       demux.py split [options] fastq1 [fastq2]
-       demux.py grep [options] fastq1 [fastq2]
-       demux.py distr [options] fastq1 [fastq2]
-       demux.py distr [options] fasta
+       demux.py split  [options] fastq1 [fastq2]
+       demux.py grep   [options] fastq1 [fastq2]
+       demux.py distr  [options] fastq1 [fastq2]
+       demux.py distr  [options] fasta
 
 The `detect' command examines a fastq or fasta file extracting its barcodes. By default,
 the input file is assumed to be in fastq format and the barcodes are extracted from 
@@ -30,10 +30,12 @@ a frequency greater than the one specified with the -p option are reported. Dete
 barcodes are written to standard output in tab-delimited format. The output is suitable 
 as the barcodes file for the `split' command.
 
-The `split' command separates the reads from a fastq file (or two fastq files in 
-paired-end mode) into one file for each barcode, plus (optionally) a file for reads 
-with unmatched barcodes. The barcodes file should be tab-delimited, with labels in 
-the first column and barcode sequences in the second one. 
+The `split' command separates the reads from a fasta or fastq file (or two fastq files in 
+paired-end mode) into one file for each barcode, plus (optionally) a file for reads with 
+unmatched barcodes. The barcodes file should be tab-delimited, with labels in the first 
+column and barcode sequences in the second one. Barcodes are read from the read header
+(assumed to be in Illumina format) by default, or from the sequence itself if -s is specified.
+If the input file is in fasta format, -s is required.
 
 The `grep' command extracts read pairs containing at least one occurrence of a specified
 pattern, in either the left or right mate of each pair. Use -lt to specify the pattern
@@ -41,7 +43,9 @@ to be searched for in the left mate, and -rt for the right mate (if not specifie
 to reverse-complement of -lt).
 
 The `distr' command distributes the reads in the input file(s) into D different files, where
-D is specified with the -d option.
+D is specified with the -d option. Reads are distributed in round-robin fashion, so that
+at the end each output file will contain approximately the same number of reads. Input can
+be in fastq or fasta format.
 
 Options:
 
@@ -137,7 +141,8 @@ class Demux(Script.Script):
 
 P = Demux("demux", version="1.0", usage=usage,
           errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect, grep, distr.'),
-                  ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.') ])
+                  ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.'),
+                  ('NOSLICE', 'Missing -s option', 'Demultiplexing FASTA files requires the -s options.') ])
 
 ### Utils
 
@@ -178,11 +183,11 @@ class Barcode():
         self.name = name
         self.nhits = 0
 
-    def openStream(self, filename, filename2=None):
-        self.filename = self.name + "-" + filename + ".fastq.gz"
+    def openStream(self, filename, filename2=None, ext=".fastq.gz"):
+        self.filename = self.name + "-" + filename + ext
         self.stream = Utils.genOpen(self.filename, "w")
         if filename2:
-            self.filename2 = self.name + "-" + filename2 + ".fastq.gz"
+            self.filename2 = self.name + "-" + filename2 + ext
             self.stream2 = Utils.genOpen(self.filename2, "w")
 
     def closeStream(self):
@@ -192,10 +197,14 @@ class Barcode():
 
     def writeRecord(self, fq1, fq2=None):
         self.nhits += 1
-        self.stream.write(fq1.name + "\n")
-        self.stream.write(fq1.seq + "\n")
-        self.stream.write("+\n")
-        self.stream.write(fq1.qual + "\n")
+        if fq1.qual:
+            self.stream.write(fq1.name + "\n")
+            self.stream.write(fq1.seq + "\n")
+            self.stream.write("+\n")
+            self.stream.write(fq1.qual + "\n")
+        else:                   # FASTA
+            self.stream.write(">" + fq1.name + "\n")
+            self.stream.write(fq1.seq + "\n")
         if fq2:
             self.stream2.write(fq2.name + "\n")
             self.stream2.write(fq2.seq + "\n")
@@ -242,9 +251,9 @@ class BarcodeMgr():
         self.barcodeseqs.append(seq)
         self.barcodes[seq] = b
 
-    def openAll(self, filename, filename2=None):
+    def openAll(self, filename, filename2=None, ext=".fastq.gz"):
         for b in self.barcodes.values():
-            b.openStream(filename, filename2)
+            b.openStream(filename, filename2, ext=ext)
 
     def allFilenames(self):
         result = []
@@ -323,19 +332,18 @@ class FastqRec():
     qual = ""
 
     def getBarcode(self, bcslice):
-        if bcslice is None:
-            c = self.name.rfind(":")
-            if c > 0:
-                bc = self.name[c+1:]
-                if P.removePlus:
-                    plus = bc.find("+")
-                    if plus > 0:
-                        bc = bc[:plus]
-                return bc
-            else:
-                return None
-        else:
+        if bcslice:
             return self.seq[bcslice]
+        c = self.name.rfind(":")
+        if c > 0:
+            bc = self.name[c+1:]
+            if P.removePlus:
+                plus = bc.find("+")
+                if plus > 0:
+                    bc = bc[:plus]
+            return bc
+        else:
+            return None
         
 class FastqReader():
     filename = ""
@@ -421,16 +429,35 @@ class FastaReader(FastqReader):
                     self.stream.close()
                     self.stream = None
                     self.fq.name = self.saved
+                    self.nread += 1
                     return False
                 r = r.rstrip("\r\n")
                 if len(r) > 0 and r[0] == '>':
                     self.fq.name = self.saved
                     self.saved = r[1:]
+                    self.nread += 1
                     return True
                 else:
                     self.fq.seq += r
         else:
             return False
+
+    def demux(self, dm, filename, bcslice=None):
+        dm.openAll(filename, ext=".fasta")
+        while True:
+            self.nextRead()
+            bc = self.fq.getBarcode(bcslice)
+            bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
+            # print("best: " + bo.seq)
+            # raw_input()
+            if bo:
+                self.ngood += 1
+                bo.writeRecord(self.fq)
+            if not self.stream:
+                break
+        dm.closeAll()
+        sys.stderr.write("Total reads: {}\n".format(self.nread))
+        sys.stderr.write("Written: {}\n".format(self.ngood))
 
 class PairedFastqReader():
     reader1 = None
@@ -662,22 +689,32 @@ def main(args):
 
     if P.mode == 'split':
 
-        nameleft = getFastqBasename(P.fqleft)
-        if P.fqright:
-            nameright = getFastqBasename(P.fqright)
-        else:
-            nameright = None
-
         bm = BarcodeMgr()
         bm.initFromFile(P.bcfile, rc=P.revcomp, undet=P.undet)
 
-        if P.nf == 2:
-            fr = PairedFastqReader(P.fqleft, P.fqright)
-            fr.demux(bm, nameleft, nameright, P.bcslice)
+        fmt = Utils.detectFileFormat(P.fqleft)
+        if fmt == "fastq":
+            nameleft = getFastqBasename(P.fqleft)
+            if P.fqright:
+                nameright = getFastqBasename(P.fqright)
+            else:
+                nameright = None
+
+            if P.nf == 2:
+                fr = PairedFastqReader(P.fqleft, P.fqright)
+                fr.demux(bm, nameleft, nameright, P.bcslice)
+            else:
+                fr = FastqReader(P.fqleft)
+                fr.demux(bm, nameleft, P.bcslice)
+            bm.showCounts()
+        elif fmt == "fasta":
+            if not P.bcslice:
+                P.errmsg(P.NOSLICE)
+            fr = FastaReader(P.fqleft)
+            fr.demux(bm, getFastqBasename(P.fqleft), P.bcslice)
+            bm.showCounts()
         else:
-            fr = FastqReader(P.fqleft)
-            fr.demux(bm, nameleft, P.bcslice)
-        bm.showCounts()
+            P.errmsg(P.BADFMT)
 
     elif P.mode == 'detect':
         fr = FastqReader(P.fqleft)
