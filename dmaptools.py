@@ -8,6 +8,7 @@ import scipy.stats
 from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt, safeInt
 
 import Script
+from Regions import BEDdict
 
 # COMMANDS = "merge, avgmeth, histmeth, dmr, dmr2, winavg, winmat, cmerge, regavg, corr, dodmeth"
 
@@ -1684,6 +1685,88 @@ class DIFF(Script.Command):
             line = r.next()
             if line[0] == chrom:
                 return line
+
+### For Metilene output
+
+def makePayload(ncols):
+
+    def payload_maker():
+        return [ [0.0, 0] for _ in range(ncols) ]
+    return payload_maker
+
+class DMRAVG(Script.Command):
+    """Generate per-sample averages in DMR regions from Metilene output."""
+    _cmd = "dmravg"
+    dmrfile = None
+    matfile = None
+    outfile = "/dev/stdout"
+    data = {}
+    ncols = 0
+    header = None
+
+    def parseArgs(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a in ["-o"]:
+                prev = a
+            elif self.dmrfile is None:
+                self.dmrfile = a
+            elif self.matfile is None:
+                self.matfile = a
+        if self.dmrfile and self.matfile:
+            return True
+        else:
+            P.errmsg(P.nofile)
+
+    def run(self):
+        self.readDMRs()
+        self.readMatrix()
+        self.writeOutput()
+
+    def readDMRs(self):
+        self.data = BEDdict(self.dmrfile)
+        sys.stderr.write("{} regions read from DMR file {}.\n".format(self.data.nregs, self.dmrfile))
+
+    def readMatrix(self):
+        nsites = 0
+        nfound = 0
+        with open(self.matfile, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            self.header = c.next()
+            self.ncols = len(self.header) - 2 
+            self.data.setPayloads(makePayload(self.ncols))
+            for line in c:
+                nsites += 1
+                chrom = line[0]
+                pos = int(line[1])
+                reg = self.data.findPos(chrom, pos)
+                if not reg:
+                    continue
+
+                # We found a region containing this position
+                nfound += 1
+                col = 2
+                for idx in range(self.ncols):
+                    if line[col] == "NA":
+                        continue
+                    v = float(line[col])
+                    reg.payload[idx][0] += v
+                    reg.payload[idx][1] += 1
+                    col += 1
+        sys.stderr.write("{} sites read from file {}.\n{} sites in DMRs.\n".format(nsites, self.matfile, nfound))
+
+    def writeOutput(self):
+        with open(self.outfile, "w") as out:
+            out.write("#Chrom\tStart\tEnd\t" + "\t".join(self.header[2:]) + "\n")
+            for chrom in self.data.allChroms():
+                for reg in self.data.chromRegions(chrom):
+                    out.write("{}\t{}\t{}".format(reg.chrom, reg.start, reg.end))
+                    for p in reg.payload:
+                        out.write("\t{}".format(p[0] / p[1] if p[1] > 0 else 0))
+                    out.write("\n")
                 
 ### Report average methylation rates by chromosome
 
@@ -1969,8 +2052,9 @@ class Prog(Script.Script):
             self.usage()
         
 P = Prog("dmaptools.py", version="1.0",
-         errors=[('NOCMD', 'Missing command', 'The first argument should be a command name')])
-P.addCommands([Merger, Averager, Histcomparer, DMR, DMR2, WINAVG, WINMAT, CMERGE, REGAVG, CORR, DIFF, BYCHROM, CPGCOUNT])
+         errors=[('NOCMD', 'Missing command', 'The first argument should be a command name'),
+                 ('NOFILE', 'Missing input file(s)', 'One or more input file(s) is missing')])
+P.addCommands([Merger, Averager, Histcomparer, DMR, DMR2, WINAVG, WINMAT, CMERGE, REGAVG, CORR, DIFF, BYCHROM, CPGCOUNT, DMRAVG])
 
 cmdlist = ""
 for cmd in P._commandNames:

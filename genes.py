@@ -78,8 +78,8 @@ by at least `minover'."""
 class MakeDB(Script.Command):
     _cmd = "makedb"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py makedb [options] dbfile
+    def usage(self, P, out):
+        out.write("""Usage: genes.py makedb [options] dbfile
 
 Convert a gene database `dbfile' in gtf/gff/genbank/refFlat format to sqlite3 format. 
 The -o option specifies the output database.
@@ -168,8 +168,8 @@ class Classify(Script.Command):
             if stream:
                 stream.write("\t".join(line) + "\n")
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py classify [options] chrom:position ... 
+    def usage(self, P, out):
+        out.write("""Usage: genes.py classify [options] chrom:position ... 
 
 Classify the specified chromosome position(s) according to the transcripts or genes they 
 belong to. If an argument has the form @filename:col, read regions from column `col' of 
@@ -181,6 +181,7 @@ Options:
            to the same value (default: {}).
   -dup N | Upstream distance from gene (default: {}).
   -ddn N | Downstream distance from gene (default: {}).
+  -p     | Classify positions instead of regions (only uses first two columns from input file).
   -a     | Preserve original contents of input file.
   -t     | List individual transcripts.
   -ca    | Show classification for canonical transcripts only (requires -t).
@@ -195,6 +196,8 @@ Options:
         maxd = max(P.updistance, P.dndistance)
 
         RS = RegionSource(P.args)
+        if P.position:
+            RS.endcol = 1
 
         with Utils.Output(P.outfile) as out:
 
@@ -338,8 +341,8 @@ Options:
 class Region(Script.Command):
     _cmd = "region"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py region [options] spec ... 
+    def usage(self, P, out):
+        out.write("""Usage: genes.py region [options] spec ... 
 
 Display the genomic region for the genes (or transcripts, if -t is specified) identified by 
 `spec'. If `spec' is the string `all', outputs all genes or transcripts in the database. If a
@@ -408,8 +411,8 @@ Options:
 class Transcripts(Script.Command):
     _cmd = "transcripts"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py transcripts spec ... 
+    def usage(self, P, out):
+        out.write("""Usage: genes.py transcripts spec ... 
 
 Display the transcripts for the gene identified by the supplied `spec's. If `spec' is the string 
 `all', outputs all transcripts in the database. If a spec has the form @filename, gene ids are 
@@ -438,8 +441,8 @@ treated as a gene identifier, and its transcripts are printed.
 class Overlap(Script.Command):
     _cmd = "overlap"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py overlap [options] bedfile spec...
+    def usage(self, P, out):
+        out.write("""Usage: genes.py overlap [options] bedfile spec...
 
 This command reads regions from BED file `bedfile', and writes to standard output those that 
 overlap a region associated with one or more of the genes (or transcripts if -t is specified)
@@ -522,8 +525,8 @@ Options:
 class Split(Script.Command):
     _cmd = "split"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py [options] split filename...
+    def usage(self, P, out):
+        out.write("""Usage: genes.py [options] split filename...
 
 Separate regions contained in the input files into multiple files depending on their
 classification. For each input file, six output files are created concatenating the
@@ -566,8 +569,8 @@ per the `classify' command, and written to the appropriate output file.
 class Closest(Script.Command):
     _cmd = "closest"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py closest [options] spec...
+    def usage(self, P, out):
+        out.write("""Usage: genes.py closest [options] spec...
 
 Find the closest gene (or transcript, if -t is specified) to each one of the 
 regions specified on the command line. If -pc is specified, restricts the search
@@ -653,8 +656,8 @@ Output is written to standard ouptut, unless an output file is specified with -o
 class Annotate(Script.Command):
     _cmd = "annotate"
 
-    def usage(self, P):
-        sys.stderr.write("""Usage: genes.py annotate [options] infile
+    def usage(self, P, out):
+        out.write("""Usage: genes.py annotate [options] infile
 
 Rewrite input file `infile' adding gene annotations. Options:
 
@@ -713,6 +716,7 @@ class Prog(Script.Script):
     unclassified = True         # If True, display regions that have no classification. -X disables this.
     bestonly = False            # If True, display best classification only (-b)
     enhancers = ""
+    position = False
 
     def parseArgs(self, args):
         cmd = None
@@ -769,6 +773,8 @@ class Prog(Script.Script):
                 next = ""
             elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w", "-e"]:
                 next = a
+            elif a == '-p':
+                self.positions = True
             elif a == '-t':
                 if self.mode == "s":
                     self.mode = "st"
@@ -824,7 +830,6 @@ P.addCommand(Overlap)
 P.addCommand(Split)
 P.addCommand(Closest)
 P.addCommand(Annotate)
-
 P.setDocstrings({'main': """genes.py - Create and query databases of genes and transcripts
 
 Usage: genes.py [common-options] [options] command command-arguments...

@@ -34,6 +34,7 @@ class Region(object):
 class RegionSource(object):
     sources = []
     chromcol = 0
+    endcol = 2
     _nsources = 0
     _idx = 0
     _reader = None
@@ -48,7 +49,7 @@ class RegionSource(object):
         if self._reader:
                 row = self._reader.readline()
                 if row:
-                    reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+2])
+                    reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+self.endcol])
                     if reg:
                         reg.payload = row
                         return reg
@@ -100,6 +101,15 @@ class BEDdict(object):
                     self.nregs += 1
             for k in self.d.keys():
                 self.d[k].sort(key=lambda r: r.start)
+
+    def allChroms(self):
+        return sorted(self.d.keys())
+
+    def chromRegions(self, chrom):
+        if chrom in self.d:
+            return self.d[chrom]
+        else:
+            return []
         
     def find(self, reg):
         """Returns the first region in this BEDdict overlapping `reg', or None if not found."""
@@ -110,3 +120,19 @@ class BEDdict(object):
                 elif reg.overlap(r):
                     return r
         return None
+
+    def findPos(self, chrom, pos):
+        """Returns the first region in this BEDdict containing position `pos' on chromosome `chrom', or None if not found."""
+        if chrom in self.d:
+            for r in self.d[chrom]:
+                if r.start > pos:
+                    return None
+                if r.start <= pos <= r.end:
+                    return r
+        return None
+
+    def setPayloads(self, func):
+        """Set all payloads to the value returned by function `func'."""
+        for reglist in self.d.values():
+            for reg in reglist:
+                reg.payload = func()

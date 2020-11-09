@@ -156,23 +156,24 @@ class SortTerm(Term):
         return "SORT " + self.sortColName
 
 class HistogramTerm(Term):
-    histCol = 0
-    histColName = ""
     values = []
     minValue = sys.float_info.max
     maxValue = sys.float_info.min
 
-    def init(self, column):
+    def reset(self):
         self.values = []
-        self.histColName = column
-        self.histCol = parseCvar(column)
+        self.minValue = sys.float_info.max
+        self.maxValue = sys.float_info.min
 
     def execute(self, row):
-        x = convertValue(row[self.histCol])
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, x):
         self.minValue = min(x, self.minValue)
         self.maxValue = max(x, self.maxValue)
         self.values.append(x)
-        raise SkipEntry
 
     def terminate(self):
         nbins = self.parent.getVar(".nbins", 10)
@@ -186,6 +187,12 @@ class HistogramTerm(Term):
                     break
         for i in range(nbins):
             sys.stdout.write("{}\t{}\n".format(limits[i], counts[i]))
+
+    def result(self):
+        pass
+
+    def printReturns(self):
+        pass
 
 class PercentilesTerm(Term):
     percCol = 0

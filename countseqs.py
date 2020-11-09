@@ -11,7 +11,7 @@ __doc__ = """Count the number of sequences in the specified fasta or fastq files
 
 ### Program definition
 
-def usage():
+def usage(what=None):
     sys.stderr.write("""countseqs.py - Count sequences in fasta/fastq files.
 
     Usage: countseqs.py [options] files...
@@ -71,7 +71,7 @@ class CountSeqs(Script.Script):
                 self.cut = Utils.parseSlice(self.getOpt("c"))
                 cutReads(self.cut, files[0], files[1], files[2], files[3])
             elif self.getOpt("C"):
-                self.cut = Utils.parseSlice(self.getOpt("c"))
+                self.cut = Utils.parseSlice(self.getOpt("C"))
                 cutReads1(self.cut, files[0], files[1])
             else:
                 total = 0

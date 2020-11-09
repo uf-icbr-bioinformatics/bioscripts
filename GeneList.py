@@ -136,7 +136,7 @@ class Genelist():
     def __enter__(self):
         return self
 
-    def __exit__(self):
+    def __exit__(self, a, b, c):
         pass
 
     def saveAllToDB(self, filename):
@@ -594,7 +594,6 @@ to the gene's (or transcript's) TSS.
                     return (g0, d1)
                 else:
                     return (g0, -d2)
-
             r1 = self.dbconn.execute(query1).fetchone()
             if r1:
                 g1 = r1[0]
