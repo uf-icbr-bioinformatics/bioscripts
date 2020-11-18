@@ -461,16 +461,16 @@ class CSVreader():
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         try:
-            row = self._reader.next()
+            row = self._reader.__next__()
         except StopIteration as e:
             #sys.stderr.write("Cleanup!\n")
             if self._close:
                 self._stream.close()
             raise e
         while len(row) == 0 or row[0][0] == self.ignorechar:
-            row = self._reader.next()
+            row = self._reader.__next__()
         else:
             return row
 
@@ -500,7 +500,7 @@ class AtFileReader():
     def close(self):
         self.stream.close()
 
-    def next(self):
+    def __next__(self):
         while True:
             line = self.stream.readline()
             if line == '':

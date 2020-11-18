@@ -1129,6 +1129,8 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                 elif btype == 'transcript':
                     txid = ann['transcript_id']
                     if self.currTranscript:
+                        self.currTranscript.cdsstart=int(line[3])
+                        self.currTranscript.cdsend=int(line[4])
                         self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
                     self.currTranscript = Transcript(txid, chrom, strand, int(line[3]), int(line[4])) # clone gene into transcript
                     #self.currTranscript.name    = self.currGene.name
