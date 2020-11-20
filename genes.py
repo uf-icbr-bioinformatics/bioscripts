@@ -79,7 +79,7 @@ class MakeDB(Script.Command):
     _cmd = "makedb"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py makedb [options] dbfile
+        out.write("""Usage: genes.py [common-options] makedb [options]
 
 Convert a gene database `dbfile' in gtf/gff/genbank/refFlat format to sqlite3 format. 
 The -o option specifies the output database.
@@ -87,9 +87,9 @@ The -o option specifies the output database.
 """)
 
     def run(self, P):
-        if len(P.args) == 0:
+        if P.outfile is None:
             P.errmsg(P.NOOUTDB)
-        dbfile = P.args[0]
+        dbfile = P.outfile
         sys.stderr.write("Saving gene database to {}...\n".format(dbfile))
         GeneList.initializeDB(dbfile)
         ng = P.gl.saveAllToDB(dbfile)
@@ -169,11 +169,11 @@ class Classify(Script.Command):
                 stream.write("\t".join(line) + "\n")
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py classify [options] chrom:position ... 
+        out.write("""Usage: genes.py [common-options] classify [options] spec ... 
 
 Classify the specified chromosome position(s) according to the transcripts or genes they 
-belong to. If an argument has the form @filename:col, read regions from column `col' of 
-file `filename' (col defaults to 1).
+belong to. If spec has the form @filename:col, read regions from column `col' of 
+file `filename' (col defaults to 1). 
 
 Options:
 
@@ -342,7 +342,7 @@ class Region(Script.Command):
     _cmd = "region"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py region [options] spec ... 
+        out.write("""Usage: genes.py [common-options] region [options] spec ... 
 
 Display the genomic region for the genes (or transcripts, if -t is specified) identified by 
 `spec'. If `spec' is the string `all', outputs all genes or transcripts in the database. If a
@@ -412,7 +412,7 @@ class Transcripts(Script.Command):
     _cmd = "transcripts"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py transcripts spec ... 
+        out.write("""Usage: genes.py [common-options] transcripts spec ... 
 
 Display the transcripts for the gene identified by the supplied `spec's. If `spec' is the string 
 `all', outputs all transcripts in the database. If a spec has the form @filename, gene ids are 
@@ -442,7 +442,7 @@ class Overlap(Script.Command):
     _cmd = "overlap"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py overlap [options] bedfile spec...
+        out.write("""Usage: genes.py [common-options] overlap [options] bedfile spec...
 
 This command reads regions from BED file `bedfile', and writes to standard output those that 
 overlap a region associated with one or more of the genes (or transcripts if -t is specified)
@@ -526,9 +526,9 @@ class Split(Script.Command):
     _cmd = "split"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py [options] split filename...
+        out.write("""Usage: genes.py [common-options] split inputfilenames...
 
-Separate regions contained in the input files into multiple files depending on their
+Separates regions contained in the input files into multiple files depending on their
 classification. For each input file, six output files are created concatenating the
 filename with each of following labels:
 
@@ -570,29 +570,26 @@ class Closest(Script.Command):
     _cmd = "closest"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py closest [options] spec...
+        out.write("""Usage: genes.py [common-options] closest [options] spec...
 
-Find the closest gene (or transcript, if -t is specified) to each one of the 
-regions specified on the command line. If -pc is specified, restricts the search
-to coding genes only. If -ca is specified, only looks at the canonical transcript
-for each gene. If -ts is specified, computes distances with respect to the TSS of
-the gene/transcript rather than the closest point.
+Options:
 
-Each `spec' can be a position (chrom:pos), a region (chrom:start-end), or a file 
-specification of the form @filename:col, in which case regions are read from filename, 
-assuming that the chromosome is in  column `col' (defaulting to 1) and start and end 
-positions are in the two next columns. Lines starting with `#' are ignored.
+  -t   | Find the closest gene or transcript to each one of the regions specified
+  -pc  | Restrict the search to coding genes only
+  -ca  | Only look at canonical transcript for each gene
+  -ts  | Compute distances with respect to the TSS of the gene/ transcripts rather than the closest point
+  spec | Each `spec' can be a position (chrom:pos), a region (chrom:start-end), or a file 
+         specification of the form @filename:col, in which case regions are read from filename, 
+         assuming that the chromosome is in  column `col' (defaulting to 1) and start and end 
+         positions are in the two next columns. Lines starting with `#' are ignored.
+        
+         If a region was read from the command-line, output consists of the following 
+         tab-separated fields:
 
-If a region was read from the command-line, output consists of the following 
-tab-separated fields:
+            chrom, start, end, distance from nearest gene, gene ID, name of gene, strand
 
-        chrom, start, end, distance from nearest gene, gene ID, name of gene, strand
-
-If regions are read from a file, output consist of each line of the input
-file followed by distance from nearest gene, gene ID, name of gene, strand.
-
-Output is written to standard ouptut, unless an output file is specified with -o.
-
+         If regions are read from a file, output consist of each line of the input
+         file followed by distance from nearest gene, gene ID, name of gene, strand.
 """)
     
     def run(self, P):
@@ -657,11 +654,11 @@ class Annotate(Script.Command):
     _cmd = "annotate"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py annotate [options] infile
+        out.write("""Usage: genes.py [common-options] annotate [options] infile
 
-Rewrite input file `infile' adding gene annotations. Options:
+Options:
 
-  -i I | Gene identifiers are in this column (default: 1).
+  -c C | Gene identifiers are in this column (default: 1).
   -w W | Comma-separated list of wanted fields from db (default: 'name').
 
 """)
@@ -726,6 +723,7 @@ class Prog(Script.Script):
         for a in args:
             if next == '-db':
                 self.source = self.isFile(a)
+                print(self.source)
                 self.sourcetype = 'DB'
                 next = ""
             elif next == '-o':
@@ -764,7 +762,7 @@ class Prog(Script.Script):
                 else:
                     self.idcol = self.toInt(a) - 1
                 next = ""
-            elif next == "-w":
+            elif next == '-w':
                 self.wanted = a.split(",")
                 next = ""
             elif next == "-e":
@@ -819,7 +817,7 @@ P = Prog("genes.py", version="1.0",
          errors=[('BADSRC', 'Missing gene database'),
                  ('NOFILE', 'The input file does not exist.'),
                  ('BADREGION', 'Bad gene region', "Region should be one of b, u, d."),
-                 ('NOOUTDB', 'Missing output database filename', "Please specify the name of the output database file."),
+                 ('NOOUTDB', 'Missing output database filename', "Please specify the name of the output database file with -o option."),
                  ('NOCMD', 'Missing command', "Please specify a command."),
                  ('NOSPECS', 'Missing specs', "Please provide at least one gene or region spec.") ])
 P.addCommand(MakeDB)
@@ -832,13 +830,13 @@ P.addCommand(Closest)
 P.addCommand(Annotate)
 P.setDocstrings({'main': """genes.py - Create and query databases of genes and transcripts
 
-Usage: genes.py [common-options] [options] command command-arguments...
+Usage: genes.py [common-options] command [options] command-arguments...
 
 where `command' can be one of: {}.
 
 Common options (applicable to all commands):
 
-  -o  O | Write output to file O (default: stdout)
+  -o  O | Write output to file O
   -db D | Load gene database from database file D. D can be in one of the following formats:
           - gtf (extensions .gtf, .GTF)
           - gff3 (extensions .gff, .gff3, .GFF, .GFF3)
@@ -854,10 +852,10 @@ Use genes.py -h <command> to get help on <command> and its specific options.
 
 def main(args):
     cmd = P.parseArgs(args)
-    P.gl = loadGenes(P.source)
     try:
         c = P.findCommand(cmd)
         if c:
+            P.gl = loadGenes(P.source)
             c().run(P)
         else:
             P.usage()
