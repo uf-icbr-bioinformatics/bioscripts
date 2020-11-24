@@ -1,2 +1,4 @@
 Homo_sapiens.GRCh38.101.*
+*.csv
+*.txt
 __pycache__

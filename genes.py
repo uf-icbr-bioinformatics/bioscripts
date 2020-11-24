@@ -79,10 +79,9 @@ class MakeDB(Script.Command):
     _cmd = "makedb"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py [common-options] makedb [options]
+        out.write("""Usage: genes.py [common-options] makedb
 
-Convert a gene database `dbfile' in gtf/gff/genbank/refFlat format to sqlite3 format. 
-The -o option specifies the output database.
+Convert a gene database file in gtf/gff/genbank/refFlat format to sqlite3 format. 
 
 """)
 
@@ -186,7 +185,7 @@ Options:
   -t     | List individual transcripts.
   -ca    | Show classification for canonical transcripts only (requires -t).
   -X     | Do not display regions that have no classification.
-  -s     | Summary classification only (number and percentage of region classes).
+  -s     | Summary classification only (number and percentage of region classes). (-t -ca -c are not compatible with this option)
   -c C   | Add column C from regions file to output.
   -e E   | Read enhancers from file E (enables ATAC mode).
 
@@ -676,7 +675,7 @@ Options:
             with P.gl:
                 with open(infile, "r") as f:
                     c = csv.reader(f, delimiter='\t')
-                    hdr = c.next()
+                    hdr = c.__next__()
                     hdr[inscol:inscol] = fieldnames
                     out.write("\t".join(hdr) + "\n")
                     for row in c:

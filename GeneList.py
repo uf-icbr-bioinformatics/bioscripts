@@ -774,7 +774,7 @@ If the class is CL_CODING or CL_EXON, the `extra' attribute contains the exon nu
         if self.txstart <= pos <= self.txend:
             ne = self.posInExon(pos)
             if ne:
-                if self.cdsstart <= pos <= self.cdsend:
+                if self.cdsstart and self.cdsend and self.cdsstart <= pos <= self.cdsend:
                     return CL_CODING(subject=self, extra=ne)
                 else:
                     return CL_EXON(subject=self, extra=ne)
