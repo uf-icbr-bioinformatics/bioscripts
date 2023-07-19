@@ -165,7 +165,7 @@ Min sites: {}
             out.write("# GeneID\tGene\tDescription\tChrom\tStart\tEnd\tStrand\tSites\t{}\n".format(outColName(self.mode)))
             with open(self.methfile, "r") as f:
                 c = csv.reader(f, delimiter='\t')
-                c.next()            # skip header
+                next(c)            # skip header
                 for parsed in c:
                     chrom = parsed[chrcol]
                     if chrom != thischrom:

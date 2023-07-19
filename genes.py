@@ -15,7 +15,7 @@ def loadGenes(filename):
     if not loaderClass:
         P.errmsg(P.BADSRC)
     loader = loaderClass(filename)
-    sys.stderr.write("[Loading genes database from {}... ".format(filename))
+    sys.stderr.write("[Loading genes database from {} ({})... ".format(filename, loader.label))
     gl = loader.load(preload=False)
     sys.stderr.write("{} genes loaded.]\n".format(gl.ngenes))
     return gl
@@ -79,10 +79,10 @@ class MakeDB(Script.Command):
     _cmd = "makedb"
 
     def usage(self, P, out):
-        out.write("""Usage: genes.py makedb [options] dbfile
+        out.write("""Usage: genes.py makedb -db source dbfile
 
-Convert a gene database `dbfile' in gtf/gff/genbank/refFlat format to sqlite3 format. 
-The -o option specifies the output database.
+Convert a gene database `source' in gtf/gff/genbank/refFlat format to 
+a sqlite3 saved to `dbfile'.
 
 """)
 
@@ -97,12 +97,12 @@ The -o option specifies the output database.
 
 class Classify(Script.Command):
     _cmd = "classify"
-    regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o') ]
+    regnames = [ ('Upstream', 'u'), ('Exon', 'e'), ('CodingExon', 'E'), ('Intron', 'i'), ('Downstream', 'd'), ('Intergenic', 'o'), ('First exon', '1') ]
     totals = {}
     streams = {}
     
     def __init__(self):
-        self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0}
+        self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0, '1': 0}
         self.streams = {'u': None, 'd': None, 'E': None, 'e': None, 'i': None, 'o': None, 's': None}
 
     def add(self, key):
@@ -189,6 +189,8 @@ Options:
   -s     | Summary classification only (number and percentage of region classes).
   -c C   | Add column C from regions file to output.
   -e E   | Read enhancers from file E (enables ATAC mode).
+  -R R   | Set priority of classification regions. R should be a string containing the following
+           letters: Eeuihdo1.
 
 """.format(P.updistance, P.updistance, P.dndistance))
     
@@ -224,6 +226,7 @@ Options:
                 end   = reg.end
                 pos   = (start + end) / 2
                 genes = P.gl.allIntersecting(reg.chrom, start - maxd, end + maxd)
+
                 if P.mode == "t":
                     for g in genes:
                         for tr in g.transcripts:
@@ -241,6 +244,7 @@ Options:
                                     extra = ""
                                 out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg.chrom, start, end, g.name, tr.ID, tr.accession, cls.name, exn, extra))
                 elif P.mode == "g":
+                    #print( (start, end, pos, genes) )
                     allclasses = []
                     for g in genes:
                         cls = g.classifyPosition(pos, P.updistance, P.dndistance)
@@ -271,7 +275,11 @@ Options:
                         for g in genes:
                             c = g.classifyPosition(pos, P.updistance, P.dndistance)
                             for x in c:
-                                self.add(x.name)
+                                ctype = x.name
+                                if ctype in 'eE' and x.extra == 1:
+                                    self.add("1")
+                                else:
+                                    self.add(x.name)
                 elif P.mode == "st":
                     if len(genes) == 0:
                         self.add('o')
@@ -362,6 +370,18 @@ Options:
   -ddn N | Downstream distance from gene (default: {}).
   -t     | Show transcripts instead of genes.
 
+The following table explains the behavior of the values of the -r option. TSS indicates the gene's
+transcription start site, and TES the transcription end site; U indicates the upstream distance
+(set with -dup) and D the downstream distance (set with -ddn).
+
+  Code | Region start | Region end
+  -----+--------------+-----------
+  b    | TSS          | TES
+  B    | TSS - U      | TES + D
+  p    | TSS - U      | TSS
+  u    | TSS - U      | TSS + D
+  d    | TES - U      | TES + D
+
 """.format(P.regwanted, P.oformat, P.updistance, P.updistance, P.dndistance))
 
     def run(self, P):
@@ -404,7 +424,7 @@ Options:
                     if P.oformat == "c":
                         sys.stdout.write("{}\t{}:{}-{}\t{}\n".format(name, gene.chrom, start, end, "+" if gene.strand == 1 else "-"))
                     elif P.oformat == "t":
-                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name))
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(gene.chrom, start, end, "+" if gene.strand == 1 else "-", name, gene.ID))
                 else:
                     sys.stderr.write("No gene `{}'.\n".format(name))
 
@@ -496,8 +516,8 @@ Options:
                 chrom = tx.chrom
                 if chrom not in regions:
                     regions[chrom] = []
-                regions[chrom].append((start, end, name, tx.strand))
-        for chrom in regions.keys():
+                regions[chrom].append((start, end, tx.ID, name, tx.strand))
+        for chrom in list(regions.keys()):
             regions[chrom].sort()
         sys.stderr.write("done.\n")
 
@@ -517,7 +537,7 @@ Options:
                     overs.sort(key=lambda n: n[0])
                     for ovr in overs:
                         ov = ovr[1]
-                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}".format(chrom, ov[0], ov[1], ov[2], "+" if ov[3] == 1 else "-", ovr[0]))
+                        sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(chrom, ov[0], ov[1], ov[2], ov[3], "+" if ov[4] == 1 else "-", ovr[0]))
                         if P.addBedFields:
                             sys.stdout.write("\t" + "\t".join(line[1:]))
                         sys.stdout.write("\n")
@@ -655,6 +675,7 @@ Output is written to standard ouptut, unless an output file is specified with -o
 
 class Annotate(Script.Command):
     _cmd = "annotate"
+    table = "Genes"
 
     def usage(self, P, out):
         out.write("""Usage: genes.py annotate [options] infile
@@ -669,21 +690,25 @@ Rewrite input file `infile' adding gene annotations. Options:
     def run(self, P):
         if len(P.args) == 0:
             P.errmsg(P.NOFILE)
+        if "t" in P.mode:
+            self.table = "Transcripts"
         infile = P.args[0]
         idcol = P.idcol
         inscol = idcol + 1
         fieldnames = [ s.upper() for s in P.wanted ]
         missing = [ "???" for s in P.wanted ]
-        query = "SELECT {} FROM Genes WHERE ID=?".format(",".join(P.wanted))
+        query = "SELECT {} FROM {} WHERE ID=?".format(",".join(P.wanted), self.table)
         with Utils.Output(P.outfile) as out:
             with P.gl:
                 with open(infile, "r") as f:
                     c = csv.reader(f, delimiter='\t')
-                    hdr = c.next()
+                    hdr = next(c)
                     hdr[inscol:inscol] = fieldnames
                     out.write("\t".join(hdr) + "\n")
                     for row in c:
                         gid = row[P.idcol].strip('"')
+                        if "t" in P.mode:
+                            gid = gid.split(".")[0]
                         data = P.gl.getGeneInfo(gid, query)
                         if data:
                             row[inscol:inscol] = data
@@ -720,61 +745,64 @@ class Prog(Script.Script):
 
     def parseArgs(self, args):
         cmd = None
-        next = ""
+        prev = ""
         
         self.standardOpts(args)
         for a in args:
-            if next == '-db':
+            if prev == '-db':
                 self.source = self.isFile(a)
                 self.sourcetype = 'DB'
-                next = ""
-            elif next == '-o':
+                prev = ""
+            elif prev == '-o':
                 self.outfile = a
-                next = ""
-            elif next == '-d':
+                prev = ""
+            elif prev == '-d':
                 self.updistance = self.toInt(a)
                 self.dndistance = self.updistance
-                next = ""
-            elif next == '-dup':
+                prev = ""
+            elif prev == '-dup':
                 self.updistance = self.toInt(a)
-                next = ""
-            elif next == '-ddn':
+                prev = ""
+            elif prev == '-ddn':
                 self.dndistance = self.toInt(a)
-                next = ""
-            elif next == '-f':
+                prev = ""
+            elif prev == '-f':
                 self.oformat = a
-                next = ""
-            elif next == '-x':
+                prev = ""
+            elif prev == '-x':
                 self.excel = a
-                next = ""
-            elif next == '-b':
+                prev = ""
+            elif prev == '-b':
                 self.ovbases = self.toInt(a)
-                next = ""
-            elif next == '-r':
+                prev = ""
+            elif prev == '-r':
                 if a in ['b', 'B', 'p', 'u', 'd']:
                     self.regwanted = a
-                    next = ""
+                    prev = ""
                 else:
                     self.errmsg('BADREGION')
-            elif next == "-c":
+            elif prev == "-c":
                 if ":" in a:
                     parts = a.split(":")
                     self.idcol = self.toInt(parts[0]) - 1
                     self.idname = parts[1]
                 else:
                     self.idcol = self.toInt(a) - 1
-                next = ""
-            elif next == "-w":
+                prev = ""
+            elif prev == "-w":
                 self.wanted = a.split(",")
-                next = ""
-            elif next == "-e":
+                prev = ""
+            elif prev == "-e":
                 self.enhancers = a
                 self.mode = "a"
-                next = ""
-            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w", "-e"]:
-                next = a
+                prev = ""
+            elif prev == "-R":
+                GeneList.setClassificationOrder(a)
+                prev = ""
+            elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w", "-e", "-R"]:
+                prev = a
             elif a == '-p':
-                self.positions = True
+                self.position = True
             elif a == '-t':
                 if self.mode == "s":
                     self.mode = "st"

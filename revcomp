@@ -59,7 +59,7 @@ def complement(s):
 def usage():
   sys.stdout.write("""revcomp - reverse complement sequences
 
-Usage: revcomp [mode] seq1 ...
+Usage: revcomp [mode] [seqs...]
 
 Prints to standard output the reverse-complement (or reverse, or complement) of each 
 sequence passed as argument. When complementing, A<->T, C<->G, Ns remain Ns, all other 
@@ -74,20 +74,43 @@ If a sequence contains a U or a u it is assumed to be RNA, and U is used in plac
 
 will reverse-complement S1 and S5, reverse S2 and S3, and complement S4.
 
+If no seqs are passed on the command line, read sequences from standard input. In this case
+the only operation supported is reverse-complement, and lines beginning with ">" are ignored,
+to allow processing fasta files.
+
 """)
 
-if __name__ == "__main__":
-  if len(sys.argv) == 1 or "-h" in sys.argv:
-    usage()
-  else:
-    mode = "-rc"
-    for a in sys.argv[1:]:
+def main(args):
+  mode = "-rc"
+  if args:
+    for a in args:
       if a in ["-rc", "-r", "-c"]:
         mode = a
+      elif a[0] == '>':
+        sys.stdout.write(a)
       elif mode == "-rc":
         sys.stdout.write(revcomp(a) + "\n")
       elif mode == "-r":
         sys.stdout.write(reverse(a) + "\n")
       elif mode == "-c":
         sys.stdout.write(complement(a) + "\n")
+  else:
+    seq = ""
+    try:
+      for a in sys.stdin:
+        if a[0] == '>':
+          if seq:
+            sys.stdout.write(revcomp(seq) + "\n")
+            seq = ""
+          sys.stdout.write(a)
+        else:
+          seq += a.rstrip("\n")
+      sys.stdout.write(revcomp(seq) + "\n")
+    except KeyboardInterrupt:
+      pass
 
+if __name__ == "__main__":
+  if "--help" in sys.argv or "-h" in sys.argv:
+    usage()
+  else:
+    main(sys.argv[1:])

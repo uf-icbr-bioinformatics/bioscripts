@@ -4,11 +4,12 @@ import sys
 import os.path
 import Utils
 import Script
+import SeqUtils
 
 __doc__ = """Operate on barcodes in fastq files"""
 
 def usage(what=None):
-    sys.stderr.write("""demux.py - {}
+    sys.stdout.write("""demux.py - {}
 
 Usage: demux.py detect [options] fastq
        demux.py split  [options] fastq1 [fastq2]
@@ -20,7 +21,7 @@ The `detect' command examines a fastq or fasta file extracting its barcodes. By 
 the input file is assumed to be in fastq format and the barcodes are extracted from 
 the final part of the read header (e.g., 1:N:0:TACAGC). If the -s option is specified, 
 barcodes are instead extracted from the read sequence, extracting its first S bases if
-S is positive, or its last S bases if negative. You can also a syntax similar to Python's 
+S is positive, or its last S bases if negative. You can also use a syntax similar to Python's 
 slice notation to specify an arbitrary range of bases, e.g. if barcodes are in positions 
 5-10 you should use -s 5:10. Note that in this case positions are 1-based, and the 
 final position is included.
@@ -95,37 +96,37 @@ class Demux(Script.Script):
         else:
             P.errmsg(P.NOCMD)
 
-        next = ""
+        prev = ""
         for a in args[1:]:
-            if next == '-m':
+            if prev == '-m':
                 self.maxmismatch = self.toInt(a)
-                next = ""
-            elif next == '-b':
+                prev = ""
+            elif prev == '-b':
                 self.bcfile = self.isFile(a)
-                next = ""
-            elif next == '-n':
+                prev = ""
+            elif prev == '-n':
                 self.ndetect = self.toInt(a)
-                next = ""
-            elif next == '-p':
+                prev = ""
+            elif prev == '-p':
                 self.minpct = self.toFloat(a)
-                next = ""
-            elif next == '-s':
+                prev = ""
+            elif prev == '-s':
                 self.bcslice = Utils.parseSlice(a)
-                next = ""
-            elif next == '-lt':
+                prev = ""
+            elif prev == '-lt':
                 self.leftTarget = a
-                next = ""
-            elif next == '-rt':
+                prev = ""
+            elif prev == '-rt':
                 self.rightTarget = a
-                next = ""
-            elif next == '-d':
+                prev = ""
+            elif prev == '-d':
                 self.distr = self.toInt(a)
-                next = ""
-            elif next == '-o':
+                prev = ""
+            elif prev == '-o':
                 self.distrout = a
-                next = ""
+                prev = ""
             elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt', '-o', '-d']:
-                next = a
+                prev = a
             elif a == '-r':
                 self.revcomp = True
             elif a == '-u':
@@ -143,29 +144,6 @@ P = Demux("demux", version="1.0", usage=usage,
           errors=[('NOCMD', 'Missing command', 'The first argument should be one of: split, detect, grep, distr.'),
                   ('BADFMT', 'Bad input file format', 'The input file should be in fasta of fastq format.'),
                   ('NOSLICE', 'Missing -s option', 'Demultiplexing FASTA files requires the -s options.') ])
-
-### Utils
-
-def revcomp(seq):
-    nucmap = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A',
-              'a': 't', 'c': 'g', 'g': 'c', 't': 'a'}
-    rc = ""
-    for i in range(len(seq)-1, -1, -1):
-        b = seq[i]
-        if b in nucmap:
-            rc += nucmap[seq[i]]
-        else:
-            rc += b
-    return rc
-
-def distance(s1, s2):
-    #print("distance {} {} \n".format(s1, s2))
-    d = 0
-    for i in range(min(len(s1), len(s2))):
-        if s1[i] != s2[i]:
-            d += 1
-    # print("{} {}: {}".format(s1, s2, d))
-    return d
 
 ### Classes
 
@@ -185,10 +163,10 @@ class Barcode():
 
     def openStream(self, filename, filename2=None, ext=".fastq.gz"):
         self.filename = self.name + "-" + filename + ext
-        self.stream = Utils.genOpen(self.filename, "w")
+        self.stream = Utils.genOpen(self.filename, "wt")
         if filename2:
             self.filename2 = self.name + "-" + filename2 + ext
-            self.stream2 = Utils.genOpen(self.filename2, "w")
+            self.stream2 = Utils.genOpen(self.filename2, "wt")
 
     def closeStream(self):
         self.stream.close()
@@ -224,7 +202,7 @@ class BarcodeMgr():
         self.nhits = 0
 
     def initFromFile(self, filename, rc=False, undet=False):
-        with open(filename, "r") as f:
+        with open(filename, "rt") as f:
             for line in f:
                 if line[0] == '#':
                     continue
@@ -234,7 +212,7 @@ class BarcodeMgr():
                 if line[0] == 'Other': # when reading output of `detect' command...
                     continue
                 if rc:
-                    bc = revcomp(line[1])
+                    bc = SeqUtils.revcomp(line[1])
                 else:
                     bc = line[1]
                 self.add(line[0], bc)
@@ -276,7 +254,7 @@ class BarcodeMgr():
         best = ""
         for bc in self.barcodeseqs:
             if bc != "*":
-                d = distance(seq, bc)
+                d = SeqUtils.distance(seq, bc)
                 if d < maxd:
                     maxd = d
                     best = bc
@@ -286,11 +264,11 @@ class BarcodeMgr():
             self.nhits += 1
             #bb.nhits += 1
             return bb
-        elif "*" in self.barcodes:
+        if "*" in self.barcodes:
             self.nhits += 1
             return self.barcodes["*"]
-        else:
-            return None
+        # else:
+        return None
 
     def findOrCreate(self, seq):
         self.nhits += 1
@@ -303,7 +281,7 @@ class BarcodeMgr():
     def showCounts(self):
         hiddenb = 0             # Barcodes not shown
         hiddenh = 0             # Hits for barcodes not shown
-        ranking = [b for b in self.barcodes.itervalues()]
+        ranking = list(self.barcodes.values())
         ranking.sort(key=lambda b:b.nhits, reverse=True)
 
         try:
@@ -311,13 +289,13 @@ class BarcodeMgr():
             for b in ranking:
                 seq = b.seq
                 if P.revcomp:
-                    seq = revcomp(seq)
+                    seq = SeqUtils.revcomp(seq)
                 if self.nhits == 0:
                     pct = 0
                 else:
-                    pct = Utils.f2dd(100.0 * b.nhits / self.nhits)
+                    pct = 100.0 * b.nhits / self.nhits
                 if pct >= P.minpct:
-                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, pct, b.filename, b.filename2 or ""))
+                    sys.stdout.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(b.name, seq, b.nhits, Utils.f2dd(pct), b.filename, b.filename2 or ""))
                 else:
                     hiddenb += 1
                     hiddenh += b.nhits
@@ -326,53 +304,7 @@ class BarcodeMgr():
         except IOError:
             pass
 
-class FastqRec():
-    name = ""
-    seq = ""
-    qual = ""
-
-    def getBarcode(self, bcslice):
-        if bcslice:
-            return self.seq[bcslice]
-        c = self.name.rfind(":")
-        if c > 0:
-            bc = self.name[c+1:]
-            if P.removePlus:
-                plus = bc.find("+")
-                if plus > 0:
-                    bc = bc[:plus]
-            return bc
-        else:
-            return None
-        
-class FastqReader():
-    filename = ""
-    fq = None
-    stream = None
-    nread = 0
-    ngood = 0
-
-    def __init__(self, filename):
-        self.filename = filename
-        self.fq = FastqRec()
-        if self.filename == '-':
-            self.stream = sys.stdin
-        else:
-            self.stream = Utils.genOpen(filename, "r")
-        self.nread = 0
-
-    def nextRead(self):
-        if self.stream:
-            r = self.stream.readline()
-            if r == '':
-                self.stream.close()
-                self.stream = None
-                return None
-            self.fq.name = r.rstrip("\r\n")
-            self.fq.seq = self.stream.readline().rstrip("\r\n")
-            self.stream.readline()
-            self.fq.qual = self.stream.readline().rstrip("\r\n")
-            self.nread += 1
+class FastqReader(SeqUtils.FastqReader):
 
     def demux(self, dm, filename, bcslice=None):
         dm.openAll(filename)
@@ -380,7 +312,7 @@ class FastqReader():
             self.nextRead()
             if not self.stream:
                 break
-            bc = self.fq.getBarcode(bcslice)
+            bc = self.fq.getBarcode(bcslice, removePlus=P.removePlus)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
             # print("best: " + bo.seq)
             # raw_input()
@@ -388,7 +320,7 @@ class FastqReader():
                 self.ngood += 1
                 bo.writeRecord(self.fq)
         dm.closeAll()
-        sys.stderr.write("Total reads: {}\n".format(self.nread))
+        sys.stderr.write("Total reads: {}\n.".format(self.nread))
         sys.stderr.write("Written: {}\n".format(self.ngood))
 
     def detect(self, ndetect, bcslice=None):
@@ -400,7 +332,7 @@ class FastqReader():
             self.nextRead()
             if not self.stream:
                 break
-            bc = self.fq.getBarcode(bcslice)
+            bc = self.fq.getBarcode(bcslice, removePlus=P.removePlus)
             dm.findOrCreate(bc)
             if self.nread == ndetect:
                 break
@@ -410,43 +342,13 @@ class FastqReader():
         except IOError:
             pass
 
-class FastaReader(FastqReader):
-
-    first = True
-    saved = False
-
-    def nextRead(self):
-        if self.stream:
-            self.fq.seq = ""
-
-            if self.first:
-                self.saved = self.stream.readline().rstrip("\r\n")[1:]
-                self.first = False
-
-            while True:
-                r = self.stream.readline()
-                if r == '':
-                    self.stream.close()
-                    self.stream = None
-                    self.fq.name = self.saved
-                    self.nread += 1
-                    return False
-                r = r.rstrip("\r\n")
-                if len(r) > 0 and r[0] == '>':
-                    self.fq.name = self.saved
-                    self.saved = r[1:]
-                    self.nread += 1
-                    return True
-                else:
-                    self.fq.seq += r
-        else:
-            return False
+class FastaReader(SeqUtils.FastaReader):
 
     def demux(self, dm, filename, bcslice=None):
         dm.openAll(filename, ext=".fasta")
         while True:
             self.nextRead()
-            bc = self.fq.getBarcode(bcslice)
+            bc = self.fq.getBarcode(bcslice, removePlus=P.removePlus)
             bo = dm.findBest(bc, maxmismatch=P.maxmismatch) # Barcode object
             # print("best: " + bo.seq)
             # raw_input()
@@ -459,38 +361,7 @@ class FastaReader(FastqReader):
         sys.stderr.write("Total reads: {}\n".format(self.nread))
         sys.stderr.write("Written: {}\n".format(self.ngood))
 
-class PairedFastqReader():
-    reader1 = None
-    reader2 = None
-    fq1 = None
-    fq2 = None
-    nread = 0
-    nbad  = 0
-    ngood = 0
-    
-    def __init__(self, filename1, filename2):
-        fmt = Utils.detectFileFormat(filename1)
-        if fmt == 'fasta':
-            self.reader1 = FastaReader(filename1)
-        elif fmt == 'fastq':
-            self.reader1 = FastqReader(filename1)
-        else:
-            P.errmsg(P.BADFMT)
-        fmt = Utils.detectFileFormat(filename2)
-        if fmt == 'fasta':
-            self.reader2 = FastaReader(filename2)
-        elif fmt == 'fastq':
-            self.reader2 = FastqReader(filename2)
-        else:
-            P.errmsg(P.BADFMT)
-
-        self.fq1 = self.reader1.fq
-        self.fq2 = self.reader2.fq
-
-    def nextRead(self):
-        self.reader1.nextRead()
-        self.reader2.nextRead()
-        self.nread += 1
+class PairedFastqReader(SeqUtils.PairedFastqReader):
 
     def demux(self, dm, filename1, filename2, bcslice=None):
         dm.openAll(filename1, filename2)
@@ -498,8 +369,8 @@ class PairedFastqReader():
             self.nextRead()
             if not self.reader1.stream:
                 break
-            bc1 = self.fq1.getBarcode(bcslice)
-            bc2 = self.fq2.getBarcode(bcslice)
+            bc1 = self.fq1.getBarcode(bcslice, removePlus=P.removePlus)
+            bc2 = self.fq2.getBarcode(bcslice, removePlus=P.removePlus)
             if bc1 != bc2:
                 self.nbad += 1
                 continue
@@ -588,11 +459,11 @@ def doDistribute2():
         try:
             for i in range(P.distr):
                 sys.stderr.write("  {}, {}\n".format(outfiles1[i], outfiles2[i]))
-                outstreams1.append(Utils.genOpen(outfiles1[i], "w"))
-                outstreams2.append(Utils.genOpen(outfiles2[i], "w"))
+                outstreams1.append(Utils.genOpen(outfiles1[i], "wt"))
+                outstreams2.append(Utils.genOpen(outfiles2[i], "wt"))
 
-            in1 = Utils.genOpen(P.fqleft, "r")
-            in2 = Utils.genOpen(P.fqright, "r")
+            in1 = Utils.genOpen(P.fqleft, "rt")
+            in2 = Utils.genOpen(P.fqright, "rt")
             i = 0
             while True:
                 r = in1.readline()
@@ -624,9 +495,9 @@ def doDistribute2():
         try:
             for i in range(P.distr):
                 sys.stderr.write("  {}\n".format(outfiles1[i]))
-                outstreams1.append(Utils.genOpen(outfiles1[i], "w"))
+                outstreams1.append(Utils.genOpen(outfiles1[i], "wt"))
 
-            in1 = Utils.genOpen(P.fqleft, "r")
+            in1 = Utils.genOpen(P.fqleft, "rt")
             i = 0
             while True:
                 r = in1.readline()
@@ -656,7 +527,7 @@ def doDistributeFasta():
     for i in range(1, P.distr + 1):
         name = "{}.{}.fasta".format(P.distrout, i)
         outfiles.append(name)
-        outstreams.append(Utils.genOpen(name, "w"))
+        outstreams.append(Utils.genOpen(name, "wt"))
     try:
         FR = FastaReader(P.fqleft)
         i = 0
@@ -721,8 +592,8 @@ def main(args):
         fr.detect(P.ndetect, P.bcslice)
 
     elif P.mode == 'grep':
-        if P.rightTarget == None:
-            P.rightTarget = revcomp(P.leftTarget)
+        if P.rightTarget is None:
+            P.rightTarget = SeqUtils.revcomp(P.leftTarget)
         nameleft = getFastqBasename(P.fqleft)
         if P.fqright:
             nameright = getFastqBasename(P.fqright)

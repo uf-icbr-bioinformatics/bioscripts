@@ -65,7 +65,7 @@ class Stats(object):
 def collect(fastqfile, maxreads=0, T=None):
     nr = 0
     S = Stats(fastqfile)
-    with gzip.open(fastqfile, "r") as f:
+    with gzip.open(fastqfile, "rt") as f:
         while True:
             try:
                 read = f.readline()

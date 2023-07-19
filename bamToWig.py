@@ -8,7 +8,7 @@ import pysam
 import Script
 from Utils import LinkedList, LinkedListPool, GenomicWindower, DualBAMReader, Output
 
-def usage():
+def usage(what=None):
     sys.stderr.write("""bamToWig.py - Convert BAM file to WIG track for the UCSC genome browser.
 
     Usage: bamToWig.py [options] bamfile
@@ -36,7 +36,7 @@ Options:
 P = Script.Script("bamToWig", version="1.0", usage=usage)
 
 class trackdata():
-    outfile = None
+    outfile = "/dev/stdout"
     window = 100
     normalize = 1
     scale = 1
@@ -76,12 +76,7 @@ def bamToWig(bamfile, trackdata):
     sys.stderr.write("Normalizing on {} reads, scale={}\n".format(normalize, scale))
     f = 1.0 * scale / normalize
 
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-
-    try:
+    with open(trackdata.outfile, "w") as out:
         p = subprocess.Popen(['samtools', 'depth', bamfile], stdout=subprocess.PIPE)
         pin = p.stdout
 
@@ -119,9 +114,6 @@ def bamToWig(bamfile, trackdata):
                     windowsum = dp
             else:
                 windowsum += dp
-    finally:
-        if trackdata.outfile:
-            out.close()
 
 def bamToWigDiff(bamfile, bamfile2, trackdata):
     wanted = True
@@ -132,12 +124,7 @@ def bamToWigDiff(bamfile, bamfile2, trackdata):
     window = trackdata.window
     scale = trackdata.scale
 
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-
-    try:
+    with open(trackdata.outfile, "w") as out:
         br = DualBAMReader(bamfile, bamfile2)
 
         out.write(trackdata.trackHeader())
@@ -176,9 +163,6 @@ def bamToWigDiff(bamfile, bamfile2, trackdata):
                     windowsum = dp
             else:
                 windowsum += dp
-    finally:
-        if trackdata.outfile:
-            out.close()
 
 def splitCoords(c):
     p1 = c.find(":")
@@ -186,12 +170,8 @@ def splitCoords(c):
     return (c[0:p1], c[p1+1:p2], c[p2+1:])
 
 def diffToBedGraph(infile, trackdata):
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-    out.write(trackdata.trackHeader())
-    try:
+    with open(trackdata.outfile, "w") as out:
+        out.write(trackdata.trackHeader())
         with open(infile, "r") as f:
             f.readline()
             while True:
@@ -202,17 +182,10 @@ def diffToBedGraph(infile, trackdata):
                 (chrom, start, end) = splitCoords(parsed[1])
                 fc = parsed[7]
                 out.write("{}\t{}\t{}\t{}\n".format(chrom, start, end, fc))
-    finally:
-        if trackdata.outfile:
-            out.close()
 
 def methToBedGraph(infile, trackdata):
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-    out.write(trackdata.trackHeader())
-    try:
+    with open(trackdata.outfile, "w") as out:
+        out.write(trackdata.trackHeader())
         with open(infile, "r") as f:
             f.readline()
             while True:
@@ -224,19 +197,12 @@ def methToBedGraph(infile, trackdata):
                 pos = int(parsed[1])
                 fc = float(parsed[4])
                 out.write("{}\t{}\t{}\t{}\n".format(chrom, pos, pos+1, fc))
-    finally:
-        if trackdata.outfile:
-            out.close()
 
 def homerToBedGraph(infile, trackdata):
     data = {}
 
-    if trackdata.outfile:
-        out = open(trackdata.outfile, "w")
-    else:
-        out = sys.stdout
-    out.write(trackdata.trackHeader())
-    try:
+    with open(trackdata.outfile, "w") as out:
+        out.write(trackdata.trackHeader())
         with open(infile, "r") as f:
             for line in f:
                 if line != '' and line[0] != '#':
@@ -247,7 +213,7 @@ def homerToBedGraph(infile, trackdata):
                     start = int(parsed[2])
                     end = int(parsed[3])
                     fc = float(parsed[5])
-                    data[chrom].append((start, end, fc))
+                    data[chrom].append([start, end, fc])
             
         # Write regions in order, taking care of handling overlaps
         for chrom in sorted(data):
@@ -261,9 +227,6 @@ def homerToBedGraph(infile, trackdata):
                     out.write("{}\t{}\t{}\t{}\n".format(chrom, prev[0], prev[1], prev[2]))
                     prev = row
             out.write("{}\t{}\t{}\t{}\n".format(chrom, prev[0], prev[1], prev[2]))
-    finally:
-        if trackdata.outfile:
-            out.close()
 
 # ATAC mode
     

@@ -5,9 +5,11 @@ import csv
 import ast
 import math
 import gzip
-from Utils import genOpen, convertValue, dget
+from Utils import genOpen, convertValue, dget, Next
 import Script
 from numpy import median, percentile
+
+PYTHON_VERSION = sys.version_info[0]
 
 ### filter C1=I set f=C1+C2 return avg(f)
 ### set f=C1+C2 print C1 C2 f
@@ -33,7 +35,7 @@ STDEV = FUNC
 MIN = FUNC
 MAX = FUNC
 HIST = FUNC
-PERC = FUNC
+PCT = FUNC
 
 ### Decode 'Cn' variables
 
@@ -195,23 +197,28 @@ class HistogramTerm(Term):
         pass
 
 class PercentilesTerm(Term):
-    percCol = 0
-    percColName = ""
     values = []
 
-    def init(self, column):
+    def reset(self):
         self.values = []
-        self.percColName = column
-        self.percCol = parseCvar(column)
 
     def execute(self, row):
-        x = convertValue(row[self.percCol])
+        global ACTIVE
+        ACTIVE = self
+        eval(self.code, globals(), self.parent.bindings)
+
+    def perform(self, x):
         self.values.append(x)
-        raise SkipEntry
 
     def terminate(self):
-        for p in [25, 50, 75, 90, 99]:
+        for p in [1, 10, 25, 50, 75, 90, 99]:
             sys.stdout.write("{}\t{}\n".format(p, percentile(self.values, p)))
+
+    def result(self):
+        pass
+
+    def printReturns(self):
+        pass
 
 class ReturnTerm(Term):
     termtype = "return"
@@ -336,6 +343,26 @@ class MaxTerm(ReturnTerm):
     def result(self):
         return self.maxvalue
 
+# class PercentilesTerm(ReturnTerm):
+# #    percCol = 0
+# #    percColName = ""
+#     values = []
+
+#     def XXinit(self, column):
+#         self.values = []
+#         print(column)
+#         self.percColName = column
+#         self.percCol = parseCvar(column)
+
+#     def execute(self, row):
+#         x = convertValue(row[self.percCol])
+#         self.values.append(x)
+#         raise SkipEntry
+
+#     def terminate(self):
+#         for p in [1, 10, 25, 50, 75, 90, 99]:
+#             sys.stdout.write("{}\t{}\n".format(p, percentile(self.values, p)))
+
 TERMMAP = [ ('SUM', SumTerm),
             ('ADD', SumTerm),
             ('AVG', AvgTerm),
@@ -439,6 +466,7 @@ MEDIAN()      - Median value
 STDEV()       - Compute standard deviation.
 MIN(), MAX()  - Compute minimum and maximum.
 HIST()        - Compute histogram of values
+PCT()         - Compute percentiles
 
 """)
 
@@ -590,7 +618,7 @@ to their numeric representation if possible."""
         f = csv.reader(self.src, delimiter='\t')
         try:
             if self.skipHeader:
-                self.header = f.next()
+                self.header = Next(f)()
                 if self.printHeader:
                     self.out.write("\t".join(self.header) + "\n")
             for row in f:

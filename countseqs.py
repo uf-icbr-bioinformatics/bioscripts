@@ -72,7 +72,7 @@ class CountSeqs(Script.Script):
                 cutReads(self.cut, files[0], files[1], files[2], files[3])
             elif self.getOpt("C"):
                 self.cut = Utils.parseSlice(self.getOpt("C"))
-                cutReads1(self.cut, files[0], files[1])
+                cutReads1(self.cut, files[0], self.output)
             else:
                 total = 0
                 totbases = 0
@@ -92,15 +92,15 @@ class CountSeqs(Script.Script):
     def countSeqs(self, filename, out):
         nseqs = 0
         nbases = 0
-        with genOpen(filename, "r") as f:
+        with genOpen(filename, "rt") as f:
             line = f.readline()
             if len(line) > 0:
                 if line[0] == '>':
-                    (nseqs, nbases) = self.countSeqsFasta(f)
-                    out.write("{}\t{}\t{}\t{:.1f}\n".format(filename, self.printReads(nseqs), nbases, 1.0*nbases/nseqs))
+                    (nseqs, nbases, minlen, maxlen) = self.countSeqsFasta(f)
+                    out.write("{}\t{}\t{}\t{:.1f}\t{}\t{}\n".format(filename, self.printReads(nseqs), nbases, 1.0*nbases/nseqs, minlen, maxlen))
                 elif line[0] == '@':
-                    (nseqs, nbases) = self.countSeqsFastq(f)
-                    out.write("{}\t{}\t{}\t{:.1f}\n".format(filename, self.printReads(nseqs), nbases, 1.0*nbases/nseqs))
+                    (nseqs, nbases, minlen, maxlen) = self.countSeqsFastq(f)
+                    out.write("{}\t{}\t{}\t{:.1f}\t{}\t{}\n".format(filename, self.printReads(nseqs), nbases, 1.0*nbases/nseqs, minlen, maxlen))
                 else:
                     sys.stderr.write("Error: file `{}' is not in Fasta or FastQ format.\n".format(filename))
         return (nseqs, nbases)
@@ -108,19 +108,33 @@ class CountSeqs(Script.Script):
     def countSeqsFasta(self, f):
         nseqs = 1
         nbases = 0
+        minlen = 1000000
+        maxlen = 0
         for line in f:
             if line[0] == '>':
                 nseqs += 1
             else:
-                nbases += len(line) -1
-        return (nseqs, nbases)
+                rl = len(line) -1
+                nbases += rl
+                if rl < minlen:
+                    minlen = rl
+                if rl > maxlen:
+                    maxlen = rl
+        return (nseqs, nbases, minlen, maxlen)
 
     def countSeqsFastq(self, f):
         nseqs = 1
         nbases = 0
+        minlen = 1000000
+        maxlen = 0
         while True:
             # Skip rest of first record
-            nbases += len(f.readline())-1
+            rl = len(f.readline())-1
+            nbases += rl
+            if rl < minlen:
+                minlen = rl
+            if rl > maxlen:
+                maxlen = rl
             f.readline()
             f.readline()
             line = f.readline()
@@ -128,7 +142,7 @@ class CountSeqs(Script.Script):
                 break
             if line[0] == '@':
                 nseqs += 1
-        return (nseqs, nbases)
+        return (nseqs, nbases, minlen, maxlen)
 
 P = CountSeqs("countseqs.py", "1.0", usage=usage)
 
@@ -156,8 +170,8 @@ def verifyPaired(filename1, filename2, out):
     lendiff = 0
     qualdiff = 0
     namemismatch = 0
-    with genOpen(filename1, "r") as f1:
-        with genOpen(filename2, "r") as f2:
+    with genOpen(filename1, "rt") as f1:
+        with genOpen(filename2, "rt") as f2:
             while True:
                 h1 = f1.readline()
                 r1 = f1.readline()
@@ -203,10 +217,10 @@ Name mismatch: {}
 def cutReads(CUT, filename1, filename2, outfile1, outfile2):
     nin = 0
     nout = 0
-    f1 = genOpen(filename1, "r")
-    f2 = genOpen(filename2, "r")
-    o1 = genOpen(outfile1, "w")
-    o2 = genOpen(outfile2, "w")
+    f1 = genOpen(filename1, "rt")
+    f2 = genOpen(filename2, "rt")
+    o1 = genOpen(outfile1, "wt")
+    o2 = genOpen(outfile2, "wt")
     try:
         while True:
             h1 = f1.readline().rstrip("\r\n")
@@ -237,8 +251,8 @@ def cutReads(CUT, filename1, filename2, outfile1, outfile2):
 def cutReads1(CUT, filename1, outfile1):
     nin = 0
     nout = 0
-    f1 = genOpen(filename1, "r")
-    o1 = genOpen(outfile1, "w")
+    f1 = genOpen(filename1, "rt")
+    o1 = genOpen(outfile1, "wt")
     try:
         while True:
             h1 = f1.readline().rstrip("\r\n")

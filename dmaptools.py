@@ -4,8 +4,9 @@ import sys
 import csv
 import numpy as np
 import scipy.stats
+from collections import defaultdict
 
-from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt, safeInt
+from Utils import BEDreader, DualBEDreader, MATreader, METHreader, REGreader, readDelim, filenameNoExt, safeInt, stringp
 
 import Script
 from Regions import BEDdict
@@ -264,7 +265,7 @@ the results to standard output or to `outfile' if specified.
         mmap = {}
         with open(matfile, "r") as f:
             c = csv.reader(f, delimiter='\t')
-            line = c.next()
+            line = next(c)
             hdr = line[4:]
             p = f.tell()
             for line in c:
@@ -565,7 +566,7 @@ Usage: dmaptools.py histmeth matfile1 matfile2 [outfile]
                             hist[bin][i] += 1
         # print(hist)
         # print(counts)
-        fracs = [ [ 1.0*hist[b][i] / counts[i] for i in range(nreps) ] for b in range(10) ]
+        fracs = [ [ 1.0*hist[b][i] / counts[i] if counts[i] else 0 for i in range(nreps) ] for b in range(10) ]
         sys.stderr.write("{} rows.\n".format(nrows))
         return (nreps, fracs)
 
@@ -798,7 +799,7 @@ Options:
             data1 = BR1.readUntil(chrom, end)
             data2 = BR2.readUntil(chrom, end)
 
-            if isinstance(data1, basestring): # BR1 is at new chrom?
+            if stringp(data1): # BR1 is at new chrom?
                 sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
                 if self.one:
                     break
@@ -809,7 +810,7 @@ Options:
                 start = 0
                 end = self.winsize
 
-            elif isinstance(data2, basestring): # BR2 is at new chrom?
+            elif stringp(data2): # BR2 is at new chrom?
                 sys.stderr.write("{}: {} DMRs\n".format(chrom, nfound))
                 if self.one:
                     break
@@ -1038,26 +1039,28 @@ class WINAVG(Script.Command):
     outfile = None # Output file
 
     def parseArgs(self, args):
-        next = ""
+        prev = ""
         for a in args:
-            if next == '-w':
+            if prev == '-w':
                 self.winsize = P.toInt(a)
-                next = ""
-            elif next == '-t':
+                prev = ""
+            elif prev == '-t':
                 self.minsites = P.toInt(a)
-                next = ""
-            elif next == '-c':
+                prev = ""
+            elif prev == '-c':
                 self.mincov = P.toInt(a)
-                next = ""
-            elif next == '-o':
+                prev = ""
+            elif prev == '-o':
                 self.outfile = a
-                next = ""
+                prev = ""
             elif a in ['-w', '-t', '-c', '-o']:
-                next = a
-            elif self.bedfile == None:
+                prev = a
+            elif self.bedfile is None:
                 self.bedfile = P.isFile(a)
-        if self.bedfile == None:
+        if self.bedfile is None:
             P.errmsg(P.NOFILE)
+        else:
+            return True
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.
@@ -1104,7 +1107,7 @@ Options:
 
         while BR.stream != None:
             data = BR.readUntil(chrom, end)
-            if isinstance(data, basestring): # New chrom?
+            if stringp(data): # New chrom?
                 sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
                 totwins += nwins
                 nwins = 0
@@ -1140,19 +1143,19 @@ class WINMAT(Script.Command):
     outfile = None # Output file
 
     def parseArgs(self, args):
-        next = ""
+        prev = ""
         for a in args:
-            if next == '-w':
+            if prev == '-w':
                 self.winsize = P.toInt(a)
-                next = ""
-            elif next == '-t':
+                prev = ""
+            elif prev == '-t':
                 self.minsites = P.toInt(a)
-                next = ""
-            elif next == '-o':
+                prev = ""
+            elif prev == '-o':
                 self.outfile = a
-                next = ""
+                prev = ""
             elif a in ['-w', '-t', '-o']:
-                next = a
+                prev = a
             elif self.matfile == None:
                 self.matfile = P.isFile(a)
         if self.matfile == None:
@@ -1185,7 +1188,7 @@ Options:
         out.write("#Chrom\tStart\tEnd\t" + "\t".join(BR.hdr[4:]) + "\n")
         while BR.stream != None:
             data = BR.readUntil(chrom, end)
-            if isinstance(data, basestring): # New chrom?
+            if stringp(data): # New chrom?
                 sys.stderr.write("{}: {} windows\n".format(chrom, nwins))
                 totwins += nwins
                 nwins = 0
@@ -1234,25 +1237,26 @@ class CMERGE(Script.Command):
 
     def parseArgs(self, args):
         self.filenames = []
-        next = ""
+        prev = ""
         for a in args:
-            if next == '-c':
+            if prev == '-c':
                 self.targetcol = P.toInt(a) - 1
-                next = ""
-            elif next == '-o':
+                prev = ""
+            elif prev == '-o':
                 self.outfile = a
-                next = ""
-            elif next == '-x':
+                prev = ""
+            elif prev == '-x':
                 self.missing = a
-                next = ""
+                prev = ""
             elif a in ['-c', '-o', '-x']:
-                next = a
+                prev = a
             elif a == '-s':
                 self.skiphdr = True
             else:
                 self.filenames.append(P.isFile(a))
         if len(self.filenames) == 0:
             P.errmsg(P.NOFILE)
+        return True
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.
@@ -1562,7 +1566,7 @@ class CORR(Script.Command):
 
         with open(self.matfile, "r") as f:
             c = csv.reader(f, delimiter='\t')
-            hdr = c.next()
+            hdr = next(c)
             for cp in self.colpairs:
                 cp.name1 = hdr[cp.col1]
                 cp.name2 = hdr[cp.col2]
@@ -1735,7 +1739,7 @@ class DMRAVG(Script.Command):
         nfound = 0
         with open(self.matfile, "r") as f:
             c = csv.reader(f, delimiter='\t')
-            self.header = c.next()
+            self.header = next(c)
             self.ncols = len(self.header) - 2 
             self.data.setPayloads(makePayload(self.ncols))
             for line in c:
@@ -1748,14 +1752,14 @@ class DMRAVG(Script.Command):
 
                 # We found a region containing this position
                 nfound += 1
-                col = 2
+                col = 1
                 for idx in range(self.ncols):
+                    col += 1
                     if line[col] == "NA":
                         continue
                     v = float(line[col])
                     reg.payload[idx][0] += v
                     reg.payload[idx][1] += 1
-                    col += 1
         sys.stderr.write("{} sites read from file {}.\n{} sites in DMRs.\n".format(nsites, self.matfile, nfound))
 
     def writeOutput(self):
@@ -1931,6 +1935,7 @@ class CPGCOUNT(Script.Command):
                 self.cpgfile = a
             else:
                 self.bedfiles.append(a)
+        return (self.cpgfile and self.bedfiles)
 
     def usage(self, parent, out=sys.stdout):
         out.write("""dmaptools.py - Operate on methylation data.
@@ -1941,9 +1946,13 @@ This command reports the number of methylation sites in the specified BED files
 that fall within or close to the CpG islands defined in `cpgfile'. Sites are classified
 as being internal to the island, in the island shore, or in the island shelf.
 
+Output is written to a file with the same name as each bedfile, with extension .cpg.csv,
+unless -x is specified, in which case no output is written.
+
 Options:
 
-  -o O | Write output to file O (default: stdout)
+  -x   | Do not write output file(s).
+  -r R | Write overall report to file R (default: no report)
   -e E | Specify size of CpG island shore (default: {})
   -f F | Specify size of CpG island shelf (default: {})
 
@@ -1958,6 +1967,8 @@ Options:
                 out.write("{}\t{}\t{}\t{}\t{}\t{}\n".format(bed, n0, n1, n2, n3, of))
 
     def readCpGfile(self):
+        sys.stderr.write("Reading CpG locations from file {}... ".format(self.cpgfile))
+        ncpg = 1
         with open(self.cpgfile, "r") as f:
             c = csv.reader(f, delimiter='\t')
             for line in c:
@@ -1966,6 +1977,8 @@ Options:
                     self.cpgdb[chrom] = []
                 s = CpGisland(int(line[1]), int(line[2]))
                 self.cpgdb[chrom].append(s)
+                ncpg += 1
+        sys.stderr.write("done, {} sites read.\n".format(ncpg))
 
     def findIsland(self, chrom, pos):
         if chrom not in self.cpgdb:
@@ -1984,6 +1997,7 @@ Options:
             outfilename = filenameNoExt(bedfile) + ".cpg.csv"
             out = open(outfilename, "w")
         try:
+            sys.stderr.write("Reading file {}... ".format(bedfile))
             with open(bedfile, "r") as f:
                 c = csv.reader(f, delimiter='\t')
                 for line in c:
@@ -2003,10 +2017,115 @@ Options:
                             n3 += 1
                         if x and out:
                             out.write("{}\t{}\t{}\t{}\n".format(bedfile, chrom, pos, x))
+            sys.stderr.write("done, {} sites read.\n".format(n0))
         finally:
             if out:
                 out.close()
         return (n0, n1, n2, n3, outfilename)
+
+class MatMerger(Script.Command):
+    """merge methylation matrix files into a single file"""
+    _cmd = "matmerge"
+    matfiles = []
+    headers = []
+    wanted = None
+    nona = False
+    outfile = "/dev/stdout"
+
+    def __init__(self):
+        self.matfiles = []
+        self.headers = []
+        self.wanted = defaultdict(int)
+
+    def parseArgs(self, args):
+        prev = ""
+        for a in args:
+            if prev == "-o":
+                self.outfile = a
+                prev = ""
+            elif a in ["-o"]:
+                prev = a
+            elif a == "-n":
+                self.nona = True
+            else:
+                self.matfiles.append(a)
+        return self.matfiles
+
+    def usage(self, parent, out=sys.stdout):
+        out.write("""dmaptools.py - Operate on methylation data.
+
+Usage: dmaptools.py matmerge [options] matfiles...
+
+Merge two or more matfiles (SAMPLE-mat.csv) into a single matrix, suitable for MDS plots.
+Only sites appearing in all input files will be written to the output.
+
+Options:
+
+  -o O | Write output to file O (default: standard output).
+  -n   | Remove lines containing NA values.
+""")
+
+    def run(self):
+        nfiles = len(self.matfiles)
+        for mf in self.matfiles:
+            self.updateWanted(mf)
+        self.findWanted(nfiles)
+
+        for i in range(nfiles):
+            self.readMatfile(self.matfiles[i], i)
+
+        self.writeMatrix()
+
+    def updateWanted(self, filename):
+        sys.stderr.write("Reading sites from {}... ".format(filename))
+        ns = 0
+        with open(filename, "r") as f:
+            f.readline()
+            c = csv.reader(f, delimiter='\t')
+            for row in c:
+                ns += 1
+                key = row[0] + ":" + row[1]
+                self.wanted[key] += 1
+        sys.stderr.write("{} sites\n".format(ns))
+
+    def findWanted(self, nfiles):
+        newdic = {}
+        for k in self.wanted.keys():
+            if self.wanted[k] == nfiles:
+                newdic[k] = [None]*nfiles
+        self.wanted = newdic
+        sys.stderr.write("Common sites: {}\n".format(len(self.wanted)))
+
+    def readMatfile(self, filename, i):
+        sys.stderr.write("Reading methylation data from {}... ".format(filename))
+        with open(filename, "r") as f:
+            c = csv.reader(f, delimiter='\t')
+            hdr = next(c)
+            names = [ n.rstrip(".C") for n in hdr[4:] ]
+            self.headers.append("\t".join(names))
+            for row in c:
+                key = row[0] + ":" + row[1]
+                if key in self.wanted:
+                    data = row[4:]
+                    data = [ "NA" if x == "-1.0" else str(int(1000*float(x))) for x in data ]
+                    self.wanted[key][i] = "\t".join(data)
+        sys.stderr.write("done.\n")
+
+    def writeMatrix(self):
+        sys.stderr.write("Writing merged matrix to {}... ".format(self.outfile))
+        with open(self.outfile, "w") as out:
+            out.write("\t".join(self.headers) + "\n")
+            for k in self.wanted:
+                row = self.wanted[k]
+                good = True
+                if self.nona:
+                    for r in row:
+                        if "NA" in r:
+                            good = False
+                            break
+                if good:
+                    out.write(k + "\t" + "\t".join(row) + "\n")
+        sys.stderr.write("done.\n")
 
 ## window-based DMR analysis:
 ### Params:
@@ -2048,18 +2167,22 @@ class Prog(Script.Script):
             M = cl()
             if M.parseArgs(args[1:]):
                 M.run()
+            else:
+                M.usage(None)
         else:
-            self.usage()
+            self.usage(None)
         
 P = Prog("dmaptools.py", version="1.0",
          errors=[('NOCMD', 'Missing command', 'The first argument should be a command name'),
                  ('NOFILE', 'Missing input file(s)', 'One or more input file(s) is missing')])
-P.addCommands([Merger, Averager, Histcomparer, DMR, DMR2, WINAVG, WINMAT, CMERGE, REGAVG, CORR, DIFF, BYCHROM, CPGCOUNT, DMRAVG])
+P.addCommands([Merger, Averager, Histcomparer, DMR, DMR2, WINAVG, WINMAT, CMERGE, REGAVG, CORR, DIFF, BYCHROM, CPGCOUNT, DMRAVG, MatMerger])
 
 cmdlist = ""
+maxl = max([len(c) for c in P._commandNames])
+fstr = "{:" + str(maxl) + "} - {}.\n"
 for cmd in P._commandNames:
     cl = P.findCommand(cmd)
-    cmdlist += "{} - {}.\n".format(cmd, cl.__doc__)
+    cmdlist += fstr.format(cmd, cl.__doc__)
 
 P.setDocstrings({'main': """dmaptools.py - Operate on methylation data.
 

@@ -66,7 +66,7 @@ class RegionSource(object):
                 self._reader = Utils.AtFileReader(src)
                 row = self._reader.readline()
                 if row:
-                    reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+2])
+                    reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+self.endcol])
                     reg.payload = row
                     return reg
                 else:

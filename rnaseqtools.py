@@ -46,6 +46,7 @@ rsem-generate-data-matrix, but handles ERCC-based normalization as well. Options
  -u             | Invert the meaning of -F: output only the high-variability genes.
  -n X,Y,Z,...   | Specifies the number of samples for each condition. Eg:
                   -n 2,3 = samples 1-2 from condition A, samples 3-5 from condition B.
+ -r             | Round values to closest integer before writing matrix.
 
 """.format(progname))
 
@@ -123,6 +124,7 @@ def linreg(xs, ys):
 class MatrixGenerator():
     infiles = []                # List of input files
     labels = []                 # Labels for data columns (if not specified, uses filename)
+    conditions = []             # Condition that each sample belongs to
     ncols = 0                   # Number of input files
     rows = []                   # List of rows being assembled
     nrows = 0
@@ -139,9 +141,11 @@ class MatrixGenerator():
     minval = False
     condsmpls = []
     filtover = True             # Filter genes over maxfc threshold?
+    roundvals = False           # Round values to closest integer?
 
     def __init__(self):
-        self.labels = None
+        self.labels = []
+        self.conditions = []
         self.rows = []
         self.nrows = 0
         self.erccrows = []
@@ -155,37 +159,42 @@ class MatrixGenerator():
         e = False
         ercc = None
         mix = []
-        next = ""
+        prev = ""
         condsmpls = None
 
         for a in args:
             if a == '-e':
                 e = True
-            elif next == '-c':
+            elif prev == '-c':
                 self.column = a
-                next = ""
-            elif next == '-ercc':
+                prev = ""
+            elif prev == '-ercc':
                 ercc = a
-                next = ""
-            elif next == '-mix':
+                prev = ""
+            elif prev == '-mix':
                 mix = a
-                next = ""
-            elif next == '-f':
+                prev = ""
+            elif prev == '-f':
                 self.maxfc = float(a)
-                next = ""
-            elif next == '-n':
+                prev = ""
+            elif prev == '-n':
                 condsmpls = [ int(s) for s in a.split(",") ]
-                next = ""
-            elif next == '-m':
+                prev = ""
+            elif prev == '-m':
                 self.minval = float(a)
-                next = ""
-            elif next == '-l':
+                prev = ""
+            elif prev == '-l':
                 self.labels = a.split(",")
-                next = ""
-            elif a in ['-ercc', '-mix', '-c', '-n', '-f', '-m', '-l']:
-                next = a
+                prev = ""
+            elif prev == '-g':
+                self.conditions = a.split(",")
+                prev = ""
+            elif a in ['-ercc', '-mix', '-c', '-n', '-f', '-m', '-l', '-g']:
+                prev = a
             elif a == "-u":
                 self.filtover = False
+            elif a == "-r":
+                self.roundvals = True
             else:
                 files.append(S.isFile(a))
         if files == []:
@@ -318,9 +327,14 @@ for genes/transcripts and ERCC controls are stored separately."""
         nfiltered2 = 0
 
         if self.labels:
-            sys.stdout.write("\t" + "\t".join(self.labels) + "\n")
+            if self.conditions:
+                sys.stdout.write("#NAME\t" + "\t".join(self.labels) + "\n")
+            else:
+                sys.stdout.write("\t" + "\t".join(self.labels) + "\n")
         else:
             sys.stdout.write("\t" + "\t".join([ '"' + f + '"' for f in self.infiles]) + "\n")
+        if self.conditions:
+            sys.stdout.write("#CLASS:Condition\t" + "\t".join(self.conditions) + "\n")
         for r in self.rows:
             if self.minval:
                 #if min(r[1:]) < self.minval:
@@ -332,7 +346,10 @@ for genes/transcripts and ERCC controls are stored separately."""
                 if over == self.filtover:
                     nfiltered += 1
                     continue
-            sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
+            if self.roundvals:
+                sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(int(round(x))) for x in r[1:]]) + "\n")
+            else:
+                sys.stdout.write('"' + r[0] + '"\t' + "\t".join([str(x) for x in r[1:]]) + "\n")
         if nfiltered1 > 0:
             ew("{} genes filtered because value < {}.\n", nfiltered1, self.minval)
         if nfiltered2 > 0:
@@ -420,6 +437,8 @@ class DiffMerger():
     ncols = 0
     rows = []
     nrows = 0
+    pval = 1
+    log2fc = 0
     # suffixes = {'gf': ".gfdr.csv",      # differentially expressed genes
     #             'gd': ".gdiff.csv",     # gene fold changes
     #             'if': ".ifdr.csv",      # differentially expressed isoforms
@@ -427,7 +446,7 @@ class DiffMerger():
     suffixes = {'gf': ".geneDiff.csv",       # differentially expressed genes
                 'gd': ".gdiff.csv",          # gene fold changes
                 'cf': ".codinggeneDiff.csv", # differentially expressed coding genes
-                'cd': ".gdiff.csv",          # gene fold changes
+                'cd': ".gdiff.csv",          # coding gene fold changes
                 'if': ".isoDiff.csv",        # differentially expressed isoforms
                 'id': ".idiff.csv"}          # isoform fold changes
 
@@ -441,19 +460,25 @@ class DiffMerger():
 
     def parseArgs(self, args):
         labels = []
-        next = ""
+        prev = ""
         for a in args:
-            if next == '-gout':
+            if prev == '-gout':
                 self.gmerged = a
-                next = ""
-            elif next == '-cout':
+                prev = ""
+            elif prev == '-cout':
                 self.cmerged = a
-                next = ""
-            elif next == '-iout':
+                prev = ""
+            elif prev == '-iout':
                 self.imerged = a
-                next = ""
-            elif a in ['-gout', '-cout', '-iout']:
-                next = a
+                prev = ""
+            elif prev == "-p":
+                self.pval = float(a)
+                prev = ""
+            elif prev == "-f":
+                self.log2fc = float(a)
+                prev = ""
+            elif a in ['-gout', '-cout', '-iout', "-p", "-f"]:
+                prev = a
             else:
                 labels.append(a)
         if labels == []:
@@ -529,6 +554,7 @@ the identifier in the first column is in the set `ids'."""
             out.write("#ID")
             for l in self.labels:
                 out.write("\t" + l + "\tp(" + l + ")")
+                #out.write("\t" + l)
             out.write("\n")
 
             for g in matrix:
@@ -536,7 +562,13 @@ the identifier in the first column is in the set `ids'."""
                 pvals = pmatrix[g]
                 out.write(g)
                 for (fv, pv) in zip(fvals, pvals):
-                    out.write("\t" + str(fv) + "\t" + str(pv))
+                    if pv == "NA":
+                        out.write("\t\t")
+                    elif abs(float(fv)) >= self.log2fc and float(pv) <= self.pval:
+                        out.write("\t" + str(fv) + "\t" + pv)
+                    else:
+                        out.write("\t\t")
+                #out.write("\t".join([str(fv) for fv in fvals]))
                 out.write("\n")
 
     def merge(self):
@@ -602,17 +634,17 @@ class ExpMerger():
         self.table = {}
 
     def parseArgs(self, args):
-        next = ""
+        prev = ""
         for a in args:
-            if next == '-o':
+            if prev == '-o':
                 self.outfile = a
-                next = ""
-            elif next == '-l':
+                prev = ""
+            elif prev == '-l':
                 self.labels = a.split(",")
                 self.detectLabels = False
-                next = ""
+                prev = ""
             elif a in ['-o', '-l']:
-                next = a
+                prev = a
             else:
                 self.filenames.append(S.isFile(a))
         if self.filenames == []:
@@ -622,7 +654,7 @@ class ExpMerger():
         sys.stderr.write("Reading {}... ".format(filename))
         with open(filename, "r") as f:
             c = csv.reader(f, delimiter='\t')
-            hdr = c.next()
+            hdr = next(c)
             hdr = [ h.strip('"') for h in hdr ]
             ncols = len(hdr)
             if self.detectLabels:

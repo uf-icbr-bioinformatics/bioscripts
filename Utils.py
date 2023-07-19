@@ -22,6 +22,12 @@ def get_iterator(dict):
     else:
         return dict.items()
 
+def Next(r):
+    if PYTHON_VERSION == 2:
+        return r.next
+    else:
+        return r.__next__
+
 def genOpen(filename, mode):
     """Generalized open() function - works on both regular files and .gz files."""
     (name, ext) = os.path.splitext(filename)
@@ -60,6 +66,16 @@ def safeFloat(v, default=None):
         return float(v)
     except ValueError:
         return default
+
+def typename(s):
+    return type(s).__name__
+
+def stringp(s):
+    return typename(s) == "str"
+
+def listp(s):
+    return typename(s) == "list"
+    
 
 def parseFraction(f):
     """Parse a fraction returning a float.
@@ -240,7 +256,7 @@ def filterFile(infile, outfile, column, low=None, high=None, invert=False, absol
 A row is copied if the value is above `low' (if specified) and below `high' (if specified). If `invert' is true, the test 
 is inverted."""
     nout = 0
-    colstr = (type(column).__name__ != 'int')
+    colstr = (typename(column) != 'int')
     with open(outfile, "w") as out:
         with open(infile, "r") as f:
             if preserveHeader or colstr:
@@ -322,8 +338,8 @@ in the first column and as values the contents of the specified `column'
 (converted to int if `toInt' is True)."""
     result = {}
     with open(filename, "r") as f:
-        for line in f:
-            parsed = line.rstrip("\r\n").split(delimiter)
+        c = csv.reader(f, delimiter=delimiter)
+        for parsed in c:
             if toInt:
                 result[parsed[0]] = int(parsed[column])
             else:
@@ -339,7 +355,7 @@ default) treat the first line as header. Returns a tuple (data, header)."""
         r = csv.reader(f, delimiter=delimiter)
         if hdr:
             try:
-                header = r.next()
+                header = Next(r)()
             except StopIteration:
                 pass
         for line in r:
@@ -350,7 +366,7 @@ def detectFileFormat(filename):
     """Examine the first line of file `filename' and return "fasta" if
 it appears to be in FASTA format, "fastq" if it appears to be in fastq
 format, "?" otherwise."""
-    with genOpen(filename, "r") as f:
+    with genOpen(filename, "rt") as f:
         line = f.readline()
         if len(line) > 0:
             if line[0] == ">":
@@ -358,6 +374,8 @@ format, "?" otherwise."""
             elif line[0] == "@":
                 return "fastq"
         return "?"
+
+# Classes
 
 class Pathname():
     namestring = ""
@@ -451,7 +469,7 @@ class CSVreader():
     ignorechar = '#'
 
     def __init__(self, source, delimiter='\t'):
-        if type(source).__name__ == 'str':
+        if stringp(source):
             self._stream = open(source, "r")
             self._close = True
         else:
@@ -461,18 +479,21 @@ class CSVreader():
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         try:
-            row = self._reader.next()
+            row = Next(self._reader)()
         except StopIteration as e:
             #sys.stderr.write("Cleanup!\n")
             if self._close:
                 self._stream.close()
             raise e
         while len(row) == 0 or row[0][0] == self.ignorechar:
-            row = self._reader.next()
+            row = Next(self._reader)()
         else:
             return row
+
+    def next(self):
+        return self.__next__()
 
 ### Read a single column from a delimited file specified with the @filename:col notation.
 
@@ -501,6 +522,9 @@ class AtFileReader():
         self.stream.close()
 
     def next(self):
+        return self.__next__()
+
+    def __next__(self):
         while True:
             line = self.stream.readline()
             if line == '':
@@ -585,6 +609,11 @@ def getChromsFromBAM(filename):
 ### resample (store a long vector into a short one, or vice-versa)
 
 class Resampler():
+    """A resampler that preserves the sum of values in the vectors:
+
+sum(x) == sum(resample(x))
+
+"""
     size1 = 0
     size2 = 0
     steps = 0
@@ -626,6 +655,7 @@ class Resampler():
         # self.idxs2 = [ int(i * self.p) for i in range(self.steps) ]
         # print(self.idxs1)
         # print(self.idxs2)
+        # print self.vmap
         self.vec2 = []
         self.prev1 = size1
         self.prev2 = size2
@@ -634,13 +664,76 @@ class Resampler():
         self.vec2 = [0.0]*self.size2
 
         for m in self.vmap:
-            self.vec2[m[1]] = vec1[m[0]] * m[2]
+            self.vec2[m[1]] += vec1[m[0]] * m[2]
 
         # for i in range(self.steps):
             # print("{} => {} ({})".format(wh1, wh2, i * self.q))
             # print("vec1[{}] * {} => vec2[{}]".format(int(wh1), self.q, int(wh2)))
             # print("{} {} {}".format(i, self.idxs2[i], self.idxs1[i]))
             # self.vec2[self.idxs2[i]] += vec1[self.idxs1[i]] * self.q
+        return self.vec2
+
+class Resampler2(object):
+    """A resampler that preseves shape. If x is a constant vector, resample(x)
+will also be a constant vector containing the same value."""
+
+    size1 = 0
+    size2 = 0
+    p = 0.0
+    q = 0.0
+    vmap = []
+    vec2 = []
+
+    def __init__(self, size1, size2):
+        self.init(size1, size2)
+
+    def init(self, size1, size2):
+        self.size1 = size1
+        self.size2 = size2
+        self.p = 1.0 / size1
+        self.q = 1.0 / size2
+        self.steps = (size1 * size2)
+        self.vmap = []
+                
+        if self.size1 > self.size2:
+            current = [-1, -1, 0]
+            for i in range(self.steps):
+                idx1 = int(i * self.q)
+                idx2 = int(i * self.p)
+                if idx1 == current[0] and idx2 == current[1]:
+                    pass
+                else:
+                    current = [idx1, idx2, 1.0]
+                    self.vmap.append(current)
+            weights = []
+            prev = -1
+            nprev = 0
+            for v in self.vmap:
+                if v[1] == prev:
+                    nprev += 1
+                else:
+                    if prev >= 0:
+                        for _ in range(nprev):
+                            weights.append(1.0/nprev)
+                    prev = v[1]
+                    nprev = 1
+            for _ in range(nprev):
+                weights.append(1.0/nprev)
+            for i in range(len(self.vmap)):
+                self.vmap[i][2] = weights[i]
+        else:
+            step = 1.0 * self.size1 / self.size2
+            x = 0
+            for y in range(self.size2):
+                self.vmap.append([int(x), y, 1.0])
+                x += step
+
+    def resample(self, vec1):
+        self.vec2 = [0.0]*self.size2
+
+        for m in self.vmap:
+            self.vec2[m[1]] += vec1[m[0]] * m[2]
+
         return self.vec2
 
 class CircBuf():
@@ -1139,3 +1232,68 @@ class DualBAMReader():
                 self.pr1 = self.bamr1.getFromPileup()
             else:
                 self.pr2 = self.bamr2.getFromPileup()
+
+# Class to store a collection of points (X, Y) without repetitions
+
+class PointCollection(object):
+    points = {}
+    _fmt = ""
+    _hastext = False
+
+    def __init__(self, ndec=3):
+        self.points = {}
+        self._fmt = "{:." + str(ndec) + "f}_{:." + str(ndec) + "f}"
+
+    def add(self, x, y, text=None):
+        key = self._fmt.format(x, y)
+        if key not in self.points:
+            self.points[key] = (x, y, text)
+            if text:
+                self._hastext = True
+
+    def getX(self):
+        return [ p[0] for p in self.points.values() ]
+
+    def getY(self):
+        return [ p[1] for p in self.points.values() ]
+
+    def getText(self):
+        return [ p[2] for p in self.points.values() ]
+
+    def emitXlist(self, stream):
+        keys = sorted(self.points.keys())
+        if keys:
+            stream.write("[" + str(self.points[keys[0]][0]))
+            for k in keys[1:]:
+                stream.write(", " + str(self.points[k][0]))
+            stream.write("]")
+        else:
+            stream.write("[]")
+            
+    def emitYlist(self, stream):
+        keys = sorted(self.points.keys())
+        if keys:
+            stream.write("[" + str(self.points[keys[0]][1]))
+            for k in keys[1:]:
+                stream.write(", " + str(self.points[k][1]))
+            stream.write("]")
+        else:
+            stream.write("[]")
+
+    def emitXYlists(self, stream):
+        keys = sorted(self.points.keys())
+        if keys:
+            stream.write("  x: [" + str(self.points[keys[0]][0]))
+            for k in keys[1:]:
+                stream.write(", " + str(self.points[k][0]))
+            stream.write("],\n  y: ["+ str(self.points[keys[0]][1]))
+            for k in keys[1:]:
+                stream.write(", " + str(self.points[k][1]))
+            if self._hastext:
+                stream.write("],\n  text: ['"+ self.points[keys[0]][2] + "'")
+                for k in keys[1:]:
+                    stream.write(", '" + self.points[k][2] + "'")
+            stream.write("],\n")
+        else:
+            stream.write("  x: [],\n  y: [],\n")
+    

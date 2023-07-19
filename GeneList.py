@@ -97,6 +97,18 @@ class CL_ENHANCER(Classif):
     idx = 65
     name = 'h'
 
+CLASSIFICATIONS = [CL_NONE, CL_CODING, CL_EXON, CL_UPSTREAM, CL_INTRON, CL_DNSTREAM, CL_ENHANCER]
+
+def setClassificationOrder(keys):
+    idx = 100
+    for cl in CLASSIFICATIONS:
+        cl.idx = 0
+    for key in keys:
+        for cl in CLASSIFICATIONS:
+            if cl.name == key:
+                cl.idx = idx
+                idx += -1
+
 def addClassification(cls, clist):
     """Add classification `cls' to list `clist' only if
 it does not already appear."""
@@ -701,34 +713,41 @@ class Transcript():
     def setCDS(self, cdsstart, cdsend):
         """Set the CDS of this transcript to `cdsstart' and `cdsend'. This also sets the
 smallrects and largerects lists."""
-        self.cdsstart = cdsstart
-        self.cdsend   = cdsend
-        self.smallrects = []    # we're recomputing them
-        self.largerects = []    # from scratch
-        small = True
-        for e in self.exons:
-            if (e[0] <= self.cdsstart < self.cdsend <= e[1]): # CDS entirely contained in exon?
-                self.smallrects.append((e[0], self.cdsstart))
-                self.largerects.append((self.cdsstart, self.cdsend))
-                self.smallrects.append((self.cdsend, e[1]))
-            elif (e[0] <= self.cdsstart <= e[1]):             # Exon contains start of CDS? 
-                self.smallrects.append((e[0], self.cdsstart))
-                self.largerects.append((self.cdsstart, e[1]))
-                small = False
-            elif (e[0] <= self.cdsend <= e[1]):               # Exon contains end of CDS?
-                self.largerects.append((e[0], self.cdsend))
-                self.smallrects.append((self.cdsend, e[1]))
-                small = True
-            elif small:
-                self.smallrects.append(e)
-            else:
-                self.largerects.append(e)
+        if cdsstart and cdsend:
+            self.cdsstart = cdsstart
+            self.cdsend   = cdsend
+            self.smallrects = []    # we're recomputing them
+            self.largerects = []    # from scratch
+            small = True
+
+            for e in self.exons:
+                if (e[0] <= self.cdsstart < self.cdsend <= e[1]): # CDS entirely contained in exon?
+                    self.smallrects.append((e[0], self.cdsstart))
+                    self.largerects.append((self.cdsstart, self.cdsend))
+                    self.smallrects.append((self.cdsend, e[1]))
+                elif (e[0] <= self.cdsstart <= e[1]):             # Exon contains start of CDS? 
+                    self.smallrects.append((e[0], self.cdsstart))
+                    self.largerects.append((self.cdsstart, e[1]))
+                    small = False
+                elif (e[0] <= self.cdsend <= e[1]):               # Exon contains end of CDS?
+                    self.largerects.append((e[0], self.cdsend))
+                    self.smallrects.append((self.cdsend, e[1]))
+                    small = True
+                elif small:
+                    self.smallrects.append(e)
+                else:
+                    self.largerects.append(e)
 
     def posInExon(self, pos):
-        """If position `pos' is in one of the exons of this transcript, return the exon number, otherwise return False."""
+        """If `pos' belongs to an exon of this trancript, return the exon number, otherwise return the intron number (negative)."""
         nexons = len(self.exons) + 1
         ne = 1
         for e in self.exons:
+            if pos < e[0]:
+                if self.strand == 1:
+                    return -(ne-1)
+                else:
+                    return -(nexons - (ne-1))
             if e[0] <= pos <= e[1]:
                 if self.strand == 1:
                     return ne
@@ -769,16 +788,18 @@ smallrects and largerects lists."""
     def classifyPosition(self, pos, updistance, dndistance):
         """Returns a Classif instance that classifies position `pos' within this transcript,
 including `updistance' bases upstream of the TSS and `dndistance' bases downstream of the TES.
-If the class is CL_CODING or CL_EXON, the `extra' attribute contains the exon number.
+If the class is CL_CODING, CL_EXON, or CL_INTRON, the `extra' attribute contains the exon or
+intron number.
 """
+#        print((pos, self.txstart, self.txend, self.cdsstart, self.cdsend))
         if self.txstart <= pos <= self.txend:
             ne = self.posInExon(pos)
-            if ne:
-                if self.cdsstart <= pos <= self.cdsend:
+            if ne>0:
+                if self.cdsstart and self.cdsend and (self.cdsstart <= pos <= self.cdsend):
                     return CL_CODING(subject=self, extra=ne)
                 else:
                     return CL_EXON(subject=self, extra=ne)
-            return CL_INTRON(subject=self)
+            return CL_INTRON(subject=self, extra=ne)
         elif self.strand == 1:
             if self.txstart - updistance <= pos < self.txstart:
                 return CL_UPSTREAM(subject=self)
@@ -908,6 +929,7 @@ If `best' is True, only returns a single classification, ie the first one to app
         result = []
         for tr in self.transcripts:
             c = tr.classifyPosition(position, updistance, dndistance)
+            #print((tr.ID, c))
             if c:
                 c.subject = self
                 addClassification(c, result)
@@ -975,6 +997,7 @@ class GeneLoader():
     filename = ""
     currGene = None
     currTranscript = None
+    add_chr = not True
 
     def __init__(self, filename):
         self.filename = filename
@@ -989,7 +1012,8 @@ class GeneLoader():
             return False
         if chrom.startswith('chr') or chrom.startswith('Chr'):
             return chrom
-        chrom = "chr" + chrom
+        if self.add_chr:
+            chrom = "chr" + chrom
         return chrom
 
     def load(self, sort=True, index=True, preload=True):
@@ -1002,6 +1026,7 @@ class GeneLoader():
         return self.gl
 
 class refGeneLoader(GeneLoader):
+    label = "??"
     genes = {}                  # Dictionary of genes by name
 
     def _load(self, preload=True):
@@ -1020,11 +1045,12 @@ class refGeneLoader(GeneLoader):
                         self.gl.add(self.currGene, chrom)
                     transcript = Transcript(line[1], chrom, line[3], int(line[4]), int(line[5]))
                     transcript.accession = line[1]
-                    transcript.exons = zip(line[9].rstrip(",").split(","), line[10].rstrip(",").split(","))
+                    transcript.exons = list(zip(line[9].rstrip(",").split(","), line[10].rstrip(",").split(",")))
                     transcript.setCDS(int(line[6]), int(line[7]))
                     self.currGene.addTranscript(transcript)
 
 class GenbankLoader(GeneLoader):
+    label = "Genbank"
 
     def _load(self, preload=True):
         chrom = ""
@@ -1082,6 +1108,7 @@ class GenbankLoader(GeneLoader):
                     infeatures = True
 
 class GTFloader(GeneLoader):
+    label = "GTF"
 
     def parseAnnotations(self, ann):
         """Parse GTF annotations `ann' and return them as a dictionary."""
@@ -1151,6 +1178,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
         self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
 
 class GFFloader(GeneLoader):
+    label = "GFF"
 
     def parseAnnotations(self, ann):
         anndict = {}
@@ -1243,6 +1271,7 @@ class GFFloader(GeneLoader):
         sys.stderr.write("Orphans: {}\n".format(orphans))
 
 class DBloader(GeneLoader):
+    label = "DB"
     conn = None
 
     def _load(self, preload=True, wanted=[], notwanted=[]):

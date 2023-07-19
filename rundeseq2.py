@@ -69,7 +69,7 @@ class DESeq2(Script.Script):
                 self.fmode = a
                 prev = ""
             elif prev in [ "-wn", "--write_norm" ]:
-                self.write_norm = ( a in "Yy")
+                self.write_norm = a
                 prev = ""
             elif prev in [ "-wf", "--write_full" ]:
                 self.write_full = ( a in "Yy")
@@ -121,7 +121,7 @@ dds <- DESeqDataSetFromTximport(data, sampleTable, ~condition)
 """.format(**params))
         elif self.mode == "counts":
             out.write("""datafile = {inputs}
-counts = as.matrix(read.csv(datafile, sep='\t', row.names=1))
+counts = round(as.matrix(read.csv(datafile, sep='\t', row.names=1)))
 levels = c({smps})
 labels = c({conds})
 sampleTable = data.frame(condition=factor(labels))
@@ -137,8 +137,8 @@ nc = counts(dds, normalize=TRUE)
         if self.write_norm:
             out.write("""
 # Write normalized counts
-write.table(nc, file="norm.csv", sep='\t')
-""")
+write.table(nc, file="{}", sep='\t')
+""".format(self.write_norm))
 
         self.writeFiltering(out, params)
         
@@ -267,11 +267,12 @@ specified option types can be used.
  --write_norm F  | specified file. Default: {}.
 
  -wf Y           | If true, write differential expression values
- --write_full    | for all genes to a tab-delimited file, named
+ --write_full    | for ALL genes to a tab-delimited file, named
                  | A.vs.B.diff.csv. Default: {}.
 
  -wd Y           | If true, write differential expression values
- --write_diff Y  | for all genes to a tab-delimited file, named
+ --write_diff Y  | for all SIGNIFICANT genes (those with a P-value less than
+                 | the limit specified with -p) to a tab-delimited file, named
                  | A.vs.B.sig.csv. Default: {}.
 
  -o F            | Write script to this file. If not specified,
@@ -280,8 +281,58 @@ specified option types can be used.
  -x              | Execute script after writing it. Requires -o,
  --execute       | and Rscript in PATH. Default: {}.
 
-""".format(DESeq2.mode, DESeq2.fmode, DESeq2.mincount, DESeq2.pval, DESeq2.write_norm,
+""".format(DESeq2.mode, DESeq2.mincount, DESeq2.fmode, DESeq2.pval, DESeq2.write_norm,
            DESeq2.write_full, DESeq2.write_diff, DESeq2.execute))
+    elif what == "config":
+        sys.stdout.write("""Usage: rundeseq2.py [options] filenames...
+
+The experiment structure can be defined by two files, containing information
+about samples and contrasts respectively. Both files are tab-delimited with
+two columns. The first one (that should be specified with the -c option) has
+the following format:
+
+  C1    S1,S2,S3
+  C2    S4,S5,S6
+
+where Cn indicates a condition name and Sn are the samples belonging to each 
+condition. The second file (specified with the -d option) has the format:
+
+  C1   C2
+
+where C1 and C2 are two conditions to be compared to each other (C1 is test,
+C2 is control / baseline condition).
+
+The input file is expected to have one column per sample, in the same order
+as they appear in the definition file: in this case S1, S2, S3, S4, S5 and S6.
+
+The experiment definition can also be provided on the command line; use
+-h examples for more details.
+
+""")
+    elif what == "examples":
+        sys.stdout.write("""Usage: rundeseq2.py [options] filenames...
+
+As an example, assume we performed an experiment with a control condition (WT)
+and two different knockouts (KO1, KO2), and that we have three replicates for 
+each condition. The conditions file will be:
+
+  WT   WT_A,WT_B,WT_C
+  KO1  KO1_A,KO1_B,KO1_C
+  KO2  KO2_A,KO2_B,KO2_C
+
+And the contrasts file will be:
+
+  KO1  WT
+  KO2  WT
+
+The same could be accomplished specifying the experiment definition directly on
+the command line:
+
+  -c   WT,WT_A,WT_B,WT_C:KO1,KO1_A,KO1_B,KO1_C:KO2,KO2_A,KO2_B,KO2_C
+  -d   KO1^WT,KO2^WT
+
+""")
+
     else:
         sys.stdout.write("""Usage: rundeseq2.py [options] filenames...
 
@@ -295,6 +346,7 @@ Use:
  "rundeseq2.py -h options" to get help on command options.
  "rundeseq2.py -h config"  to get help on experiment definition files.
  "rundeseq2.py -h examples" for usage examples.
+
 """)
 
 ### 

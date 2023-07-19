@@ -18,13 +18,13 @@ Options:
 
   -v V | Use V as the overlap fraction to determine if two
          peaks match. The overlap fraction is defined as the
-         ration between the intersection of the two peak regions
-         divided by their union. Should be a number between 0 
-         and 1. Default: {}.
+         ratio between the intersection of the two peak regions
+         and their union. Should be a number between 0 and 1. 
+         Default: {}.
 
   -f F | Use F as the normalization factor between the two peak
          files. If not specified, this is computed automatically
-         based on the numbered of filtered tags.
+         based on the number of filtered tags.
 
   -a L | Only return rows in which the absolute value of the fold 
          change is greater than L.
