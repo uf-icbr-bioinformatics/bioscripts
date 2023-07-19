@@ -14,7 +14,8 @@ import random
 
 #from BEDutils import loadindex
 
-PYTHON_VERSION = sys.version_info[0]
+PYTHON_VERSION = sys.version_info.major
+PY3 = (PYTHON_VERSION == 3)
 
 def get_iterator(dict):
     if PYTHON_VERSION == 2:
