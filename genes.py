@@ -189,8 +189,8 @@ Options:
   -s     | Summary classification only (number and percentage of region classes).
   -c C   | Add column C from regions file to output.
   -e E   | Read enhancers from file E (enables ATAC mode).
-  -R R   | Set priority of classification regions. R should be a string containing the following
-           letters: Eeuihdo1.
+  -R R   | Set priority of classification regions. R should be a string containing the following letters: Eeuihdo1.
+  -A     | Enable ATAC mode.
 
 """.format(P.updistance, P.updistance, P.dndistance))
     
@@ -298,23 +298,26 @@ Options:
 
     def classifyATAC(self, regsource):
         self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0, 'h': 0}
-        E = GeneList.Genelist()
-        with open(P.enhancers, "r") as f:
-            c = csv.reader(f, delimiter="\t")
-            eid = 1
-            for line in c:
-                if len(line) >= 4:
-                    ename = line[3]
-                else:
-                    ename = "ENH" + str(eid)
-                    eid += 1
-                enh = GeneList.Gene(ename, line[0], "+")
-                enh.start = int(line[1])
-                enh.end = int(line[2])
-                enh.txstart = enh.start
-                enh.txend = enh.end
-                E.add(enh, enh.chrom)
-        sys.stderr.write("{} enhancers read.\n".format(E.ngenes))
+        if P.enhancers:
+            E = GeneList.Genelist()
+            with open(P.enhancers, "r") as f:
+                c = csv.reader(f, delimiter="\t")
+                eid = 1
+                for line in c:
+                    if len(line) >= 4:
+                        ename = line[3]
+                    else:
+                        ename = "ENH" + str(eid)
+                        eid += 1
+                    enh = GeneList.Gene(ename, line[0], "+")
+                    enh.start = int(line[1])
+                    enh.end = int(line[2])
+                    enh.txstart = enh.start
+                    enh.txend = enh.end
+                    E.add(enh, enh.chrom)
+            sys.stderr.write("{} enhancers read.\n".format(E.ngenes))
+        else:
+            E = None
 
         maxd = max(P.updistance, P.dndistance)
 
@@ -328,7 +331,7 @@ Options:
             end   = reg.end
             pos   = (start + end) / 2
             genes = P.gl.allIntersecting(reg.chrom, start - maxd, end + maxd)
-            enhs  = E.allIntersecting(reg.chrom, pos, pos+1)
+            enhs  = E.allIntersecting(reg.chrom, pos, pos+1) if E else None
             gclass = ""
             allclasses = []
             for g in genes:
@@ -697,7 +700,8 @@ Rewrite input file `infile' adding gene annotations. Options:
         inscol = idcol + 1
         fieldnames = [ s.upper() for s in P.wanted ]
         missing = [ "???" for s in P.wanted ]
-        query = "SELECT {} FROM {} WHERE ID=?".format(",".join(P.wanted), self.table)
+        query1 = "SELECT {} FROM {} WHERE ID=?".format(",".join(P.wanted), self.table)
+        query2 = "SELECT {} FROM {} WHERE NAME=?".format(",".join(P.wanted), self.table)
         with Utils.Output(P.outfile) as out:
             with P.gl:
                 with open(infile, "r") as f:
@@ -709,7 +713,7 @@ Rewrite input file `infile' adding gene annotations. Options:
                         gid = row[P.idcol].strip('"')
                         if "t" in P.mode:
                             gid = gid.split(".")[0]
-                        data = P.gl.getGeneInfo(gid, query)
+                        data = P.gl.getGeneInfo(gid, query1, query2)
                         if data:
                             row[inscol:inscol] = data
                         else:
@@ -813,6 +817,8 @@ class Prog(Script.Script):
                     self.mode = "st"
                 else:
                     self.mode = "s"
+            elif a == "-A":
+                self.mode = "a"
             elif a == "-a":
                 self.addBedFields = True
             elif a == "-pc":

@@ -77,6 +77,8 @@ def stringp(s):
 def listp(s):
     return typename(s) == "list"
     
+def mapcar(func, list): # I miss lisp!
+    return [func(x) for x in list]
 
 def parseFraction(f):
     """Parse a fraction returning a float.

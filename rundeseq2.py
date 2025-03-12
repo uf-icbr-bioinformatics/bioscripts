@@ -20,7 +20,7 @@ def los(l):
 class DESeq2(Script.Script):
     args = []
     infiles = []
-    mode = "rsem"               # -m, --mode
+    mode = "counts"             # -m, --mode
     conditions = []             # -c, --conditions
     contrasts = []              # -d, --contrasts
     pval = 0.01                 # -p, --pval
@@ -29,6 +29,7 @@ class DESeq2(Script.Script):
     write_norm = False          # -wn, --write_norm
     write_full = True           # -wf, --write_full
     write_diff = True           # -wd, --write_diff
+    mds_file = None             # -g, --mds_plot
     script_file = "/dev/stdout" # -o, --outfile
     execute = False             # -x, --execute
     _experiment = None
@@ -54,6 +55,7 @@ class DESeq2(Script.Script):
                 else:
                     contrasts = parseContrasts(Utils.parseList(a))
                     for contr in contrasts:
+                        print(contr)
                         self._experiment.addContrast(contr[0], contr[1])
                 prev = ""
             elif prev in ["-m", "--mode"]:
@@ -77,10 +79,14 @@ class DESeq2(Script.Script):
             elif prev in [ "-wd", "--write_diff" ]:
                 self.write_diff = ( a in "Yy")
                 prev = ""
+            elif prev in [ "-g", "--mds_plot" ]:
+                self.mds_file = a
+                prev = ""
             elif prev in [ "-o", "--outfile" ]:
                 self.script_file = a
                 prev = ""
-            elif a in [ "-n", "--names", "-c", "--conditions", "-d", "--contrasts", "-m", "--mode", "-p", "--pval", "-t", "--min_count", "-wn", "--write_norm", "-wf", "--write_full", "-wd", "--write_diff", "-o", "--outfile", "-f", "--filter"]:
+            elif a in [ "-n", "--names", "-c", "--conditions", "-d", "--contrasts", "-m", "--mode", "-p", "--pval", "-t", "--min_count", "-wn", "--write_norm", "-wf", "--write_full", "-wd", "--write_diff",
+                        "-g", "--mds_plot", "-o", "--outfile", "-f", "--filter"]:
                 prev = a
             elif a in [ "-x", "--execute" ]:
                 self.execute = True
@@ -96,15 +102,39 @@ class DESeq2(Script.Script):
 #        sys.stderr.write("{}\n".format(self._experiment.conditions))
 #        sys.stderr.write("{}\n".format(self._experiment.condsamples))
 
+    def getColumns(self, filename):
+        result = {}
+        with open(filename, "r") as f:
+            line = f.readline().rstrip().split("\t")
+        idx = 1
+        for name in line[1:]:
+            result[name] = idx
+            idx += 1
+        return result
+
     def generate(self):
+        sys.stderr.write("Writing R script to {}\n".format(self.script_file))
         with open(self.script_file, "w") as out:
-            self.generate_s(out)
+            if self.mode == "edger":
+                self.generate_edger(out)
+            else:
+                self.generate_s(out)
 
     def generate_s(self, out):
-        params = { "inputs": los(self.infiles),
-                   "smps": los(self._experiment.samples),
-                   "conds": los(self._experiment.sampleLabels()),
-                   "mincov": self.mincount }
+        if self.mode == "counts":
+            columns = self.getColumns(self.infiles[0])
+            # sys.stderr.write("{}\n".format(columns))
+            params = { "inputs": los(self.infiles),
+                       "smps": los(self._experiment.samples),
+                       "conds": los(self._experiment.getSampleLabels(list(columns.keys()))),
+                       "colnumbers": columns,
+                       "mincov": self.mincount }
+        else:
+            params = { "inputs": los(self.infiles),
+                       "smps": los(self._experiment.samples),
+                       "conds": los(self._experiment.sampleLabels()),
+                       "colnumbers": columns,
+                       "mincov": self.mincount }
 
         out.write("""# DESeq2 driver script for {} data
 library(DESeq2)
@@ -121,7 +151,7 @@ dds <- DESeqDataSetFromTximport(data, sampleTable, ~condition)
 """.format(**params))
         elif self.mode == "counts":
             out.write("""datafile = {inputs}
-counts = round(as.matrix(read.csv(datafile, sep='\t', row.names=1)))
+counts = round(as.matrix(read.csv(datafile, sep='\\t', row.names=1)))
 levels = c({smps})
 labels = c({conds})
 sampleTable = data.frame(condition=factor(labels))
@@ -137,7 +167,7 @@ nc = counts(dds, normalize=TRUE)
         if self.write_norm:
             out.write("""
 # Write normalized counts
-write.table(nc, file="{}", sep='\t')
+write.table(nc, file="{}", sep='\\t')
 """.format(self.write_norm))
 
         self.writeFiltering(out, params)
@@ -181,9 +211,13 @@ dds = dds[keep,]
         elif self.fmode[0] == 'c':
             tests = []
             idx = 1
+            colnums = params["colnumbers"]
             for c in self._experiment.conditions:
                 cs = self._experiment.condsamples[c]
-                tests.append("(rowSums(cts[,{}:{}]) > {})".format(idx, idx+len(cs)-1, mc))
+                cidx = [ str(colnums[x]) for x in cs ]
+                #sys.stderr.write("{}\n{}\n".format(cs, cidx))
+                col_names = "c(" + ",".join(cidx) + ")"
+                tests.append("(rowSums(cts[,{}, drop=FALSE]) > {})".format(col_names, mc*len(cidx)))
                 idx += len(cs)
             out.write("""
 # Filtering - average of counts in each condition
@@ -192,6 +226,80 @@ keep = {}
 dds = dds[keep,]
             """.format(" & ".join(tests)))
 
+    def generate_edger(self, out):
+        columns = self.getColumns(self.infiles[0])
+        nconds = len(self._experiment.conditions)
+        params = { "input": self.infiles[0],
+                   "columns": los(columns),
+                   "smps": los(self._experiment.samples),
+                   "conds": los(self._experiment.getSampleLabels(self._experiment.samples)),
+                   "allconds": los(self._experiment.conditions),
+                   "mincov": self.mincount }
+        params["mds"] = """# Draw MDS plot
+png(filename="{}", width=1000, height=1000, units="px")
+plotMDS(y, method="bcv", col=as.numeric(y$samples$group))
+legend("bottomleft", as.character(unique(y$samples$group)), col=1:groupnum, pch=20)
+dev.off()
+""".format(self.mds_file) if self.mds_file else ""
+        params["norm"] = """write.table(y, file="{}", sep="\\t", row.names=TRUE, col.names=TRUE)""".format(self.write_norm) if self.write_norm else ""
+        out.write("""# Differential analysis with edgeR
+
+library(edgeR)
+
+do_contrast <- function(filename, fit, contrast) {{
+    fnall = paste(filename, "diff.txt", sep=".")
+    fnsig = paste(filename, "sig.txt", sep=".")
+    lrt <- glmLRT(fit, contrast=contrast)
+    message(paste("Writing", fnall, "and", fnsig))
+    data = topTags(lrt, n=nrow(lrt), sort.by="logFC")
+    write.table(data, file=fnall, sep='\\t', col.names=TRUE, row.names=TRUE)
+    data = topTags(lrt, n=nrow(lrt), sort.by="logFC", p.value=0.05)
+    write.table(data, file=fnsig, sep='\\t', col.names=TRUE, row.names=TRUE)
+}}
+
+datafile = "{input}"
+samples = c({smps})
+type = c({conds})
+conditions = c({allconds})
+groupnum = length(conditions)
+
+counts = round(as.matrix(read.csv(datafile, sep='\\t', row.names=1)))
+counts = counts[,samples]       # restrict matrix to samples we actually have
+
+message(paste("Number of samples:", length(samples)))
+message(paste("Number of conditions:", length(conditions)))
+
+# Create DGEList object, filter it, and normalize
+y = DGEList(counts=counts, genes=rownames(counts), group=type)
+keep = rowSums(cpm(y)>1) >= length(samples)/2
+y = y[keep, , keep.lib.sizes=FALSE]
+y =  calcNormFactors(y, method="upperquartile")
+message(paste("Number of genes used for differential analysis: ", nrow(y$genes), sep=""))
+{norm}
+{mds}
+# Create design matrix, and rearrange columns to desired order
+design <- model.matrix(~ 0 + type)
+colnames(design) = sub("type", "", colnames(design))
+design <- design[, conditions]
+
+# Fit linear model
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTrendedDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+message("Fitting done")
+
+# Contrasts
+""".format(**params))
+
+        for test, ctrl in self._experiment.contrasts:
+            idx1 = self._experiment.conditions.index(test)
+            idx2 = self._experiment.conditions.index(ctrl)
+            vec = [0]*nconds
+            vec[idx1] = 1
+            vec[idx2] = -1
+            out.write("""do_contrast("{}.vs.{}", fit, c({}))\n""".format(test, ctrl, ",".join([str(x) for x in vec])))
+        
     def validate(self):
         if self.execute and not self.script_file:
             sys.stderr.write("Error: -x requires an output file (-o option).\n")
@@ -221,9 +329,11 @@ dds = dds[keep,]
         # return True
 
     def run_script(self):
+        sys.stderr.write("Executing R script...\n")
         with open(self.script_file + ".stdout", "w") as out:
             with open(self.script_file + ".stderr", "w") as err:
                 sp.call("Rscript " + self.script_file, shell=True, stdout=out, stderr=err)
+        sys.stderr.write("Done.\n")
 
 def usage(what=None):
     if what == "options":
@@ -242,8 +352,9 @@ specified option types can be used.
  -v              | Show version number.
  --version       |
 
- -m S            | Specify type of input files. Should be one of
- --mode S        | "rsem" or "counts". Default: {}.
+ -m S            | Specify mode. Should be one of "counts" (DESeq2 on counts),
+ --mode S        | "rsem" (DESeq2 on RSEM files),  or "edger" (edgeR on counts). 
+                 | Default: {}.
 
  -c SF           | Specify condition and sample names, or
  --conditions SF | read them from a file.
@@ -265,6 +376,9 @@ specified option types can be used.
 
  -wn F           | Write normalized count matrix to the
  --write_norm F  | specified file. Default: {}.
+
+ -g G            | Create MDS plot, saving it to 
+ --mds_plot G    | file G in PNG format.
 
  -wf Y           | If true, write differential expression values
  --write_full    | for ALL genes to a tab-delimited file, named
@@ -301,9 +415,6 @@ condition. The second file (specified with the -d option) has the format:
 
 where C1 and C2 are two conditions to be compared to each other (C1 is test,
 C2 is control / baseline condition).
-
-The input file is expected to have one column per sample, in the same order
-as they appear in the definition file: in this case S1, S2, S3, S4, S5 and S6.
 
 The experiment definition can also be provided on the command line; use
 -h examples for more details.

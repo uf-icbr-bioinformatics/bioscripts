@@ -34,9 +34,9 @@ as the barcodes file for the `split' command.
 The `split' command separates the reads from a fasta or fastq file (or two fastq files in 
 paired-end mode) into one file for each barcode, plus (optionally) a file for reads with 
 unmatched barcodes. The barcodes file should be tab-delimited, with labels in the first 
-column and barcode sequences in the second one. Barcodes are read from the read header
-(assumed to be in Illumina format) by default, or from the sequence itself if -s is specified.
-If the input file is in fasta format, -s is required.
+column and barcode sequences in the second one. Use the format AAAA+BBBB for dual indexes.
+Barcodes are read from the read header (assumed to be in Illumina format) by default, or 
+from the sequence itself if -s is specified. If the input file is in fasta format, -s is required.
 
 The `grep' command extracts read pairs containing at least one occurrence of a specified
 pattern, in either the left or right mate of each pair. Use -lt to specify the pattern
@@ -86,7 +86,8 @@ class Demux(Script.Script):
     rightTarget = None
     distr = 1
     distrout = None
-
+    odir = ""                   # Output directory for split
+    
     def parseArgs(self, args):
         self.nf = 0
         self.standardOpts(args)
@@ -125,7 +126,10 @@ class Demux(Script.Script):
             elif prev == '-o':
                 self.distrout = a
                 prev = ""
-            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt', '-o', '-d']:
+            elif prev == "-D":
+                self.odir = a + "/"
+                prev = ""
+            elif a in ['-m', '-b', '-n', '-p', '-s', '-lt', '-rt', '-o', '-d', "-D"]:
                 prev = a
             elif a == '-r':
                 self.revcomp = True
@@ -161,11 +165,12 @@ class Barcode():
         self.name = name
         self.nhits = 0
 
-    def openStream(self, filename, filename2=None, ext=".fastq.gz"):
-        self.filename = self.name + "-" + filename + ext
+    def openStream(self, filename, filename2=None, ext=".fastq.gz", odir=""):
+        #print(filename, filename2, ext, odir)
+        self.filename = odir + self.name + "-" + filename + ext
         self.stream = Utils.genOpen(self.filename, "wt")
         if filename2:
-            self.filename2 = self.name + "-" + filename2 + ext
+            self.filename2 = odir + self.name + "-" + filename2 + ext
             self.stream2 = Utils.genOpen(self.filename2, "wt")
 
     def closeStream(self):
@@ -229,9 +234,10 @@ class BarcodeMgr():
         self.barcodeseqs.append(seq)
         self.barcodes[seq] = b
 
-    def openAll(self, filename, filename2=None, ext=".fastq.gz"):
+    def openAll(self, filename, filename2=None, ext=".fastq.gz", odir=""):
+        #print(filename, filename2, ext, odir)
         for b in self.barcodes.values():
-            b.openStream(filename, filename2, ext=ext)
+            b.openStream(filename, filename2, ext=ext, odir=odir)
 
     def allFilenames(self):
         result = []
@@ -270,6 +276,36 @@ class BarcodeMgr():
         # else:
         return None
 
+    def findBestPaired(self, seq1, seq2, maxmismatch=1):
+        b1 = self.findBest(seq1, maxmismatch=maxmismatch)
+        b2 = self.findBest(seq2, maxmismatch=maxmismatch)
+        k1 = 0
+        k2 = 4
+        if b1:
+            if b1.seq == "*":
+                k1 = 1
+            else:
+                k1 = 2
+        if b2:
+            if b2.seq == "*":
+                k2 = 8
+            else:
+                k2 = 16
+        # print(b1.seq, b2.seq)
+        # print(k1, k2)
+        x = k1 + k2
+        if x == 18:
+            if b1.seq == b2.seq:
+                return b1
+            else:
+                return None
+        elif x in [10, 18]:
+            return b1
+        elif x in [16, 17]:
+            return b2
+        else:
+            return None
+        
     def findOrCreate(self, seq):
         self.nhits += 1
         if seq not in self.barcodeseqs:
@@ -306,8 +342,8 @@ class BarcodeMgr():
 
 class FastqReader(SeqUtils.FastqReader):
 
-    def demux(self, dm, filename, bcslice=None):
-        dm.openAll(filename)
+    def demux(self, dm, filename, bcslice=None, odir=""):
+        dm.openAll(filename, odir=odir)
         while True:
             self.nextRead()
             if not self.stream:
@@ -344,8 +380,8 @@ class FastqReader(SeqUtils.FastqReader):
 
 class FastaReader(SeqUtils.FastaReader):
 
-    def demux(self, dm, filename, bcslice=None):
-        dm.openAll(filename, ext=".fasta")
+    def demux(self, dm, filename, bcslice=None, odir=""):
+        dm.openAll(filename, ext=".fasta", odir=odir)
         while True:
             self.nextRead()
             bc = self.fq.getBarcode(bcslice, removePlus=P.removePlus)
@@ -363,24 +399,47 @@ class FastaReader(SeqUtils.FastaReader):
 
 class PairedFastqReader(SeqUtils.PairedFastqReader):
 
-    def demux(self, dm, filename1, filename2, bcslice=None):
-        dm.openAll(filename1, filename2)
-        while True:
-            self.nextRead()
-            if not self.reader1.stream:
-                break
-            bc1 = self.fq1.getBarcode(bcslice, removePlus=P.removePlus)
-            bc2 = self.fq2.getBarcode(bcslice, removePlus=P.removePlus)
-            if bc1 != bc2:
-                self.nbad += 1
-                continue
-            # print("barcode: " + bc1)
-            bo = dm.findBest(bc1, maxmismatch=P.maxmismatch)
-            # print("best: " + bo.seq)
-            # raw_input()
-            if bo:
-                self.ngood += 1
-                bo.writeRecord(self.fq1, self.fq2)
+    def demux(self, dm, filename1, filename2, bcslice=None, odir=""):
+        #print(odir)
+        dm.openAll(filename1, filename2=filename2, odir=odir)
+
+        if bcslice:
+            while True:
+                self.nextRead()
+                if not self.reader1.stream:
+                    break
+                bc1 = self.fq1.getBarcode(bcslice, removePlus=P.removePlus)
+                bc2 = self.fq2.getBarcode(bcslice, removePlus=P.removePlus)
+                # print(bc1, bc2)
+                bo = dm.findBestPaired(bc1, bc2, maxmismatch=P.maxmismatch)
+                # print(bo)
+                # print()
+                if bo:
+                    self.ngood += 1
+                    bo.writeRecord(self.fq1, self.fq2)
+
+        else:
+            
+            while True:
+                self.nextRead()
+                if not self.reader1.stream:
+                    break
+                bc1 = self.fq1.getBarcode(None, removePlus=P.removePlus)
+                bc2 = self.fq2.getBarcode(None, removePlus=P.removePlus)
+                if bc1 != bc2:
+                    self.nbad += 1
+                    continue
+                # print("barcode: " + bc1)
+                # print("best: " + bo.seq)
+                # raw_input()
+                bo = dm.findBest(bc1, maxmismatch=P.maxmismatch)
+                #print(bo)
+                # print("best: " + bo.seq)
+                # raw_input()
+                if bo:
+                    self.ngood += 1
+                    bo.writeRecord(self.fq1, self.fq2)
+
         dm.closeAll()
         sys.stderr.write("Total reads: {}\n".format(self.nread))
         sys.stderr.write("Mismatched barcodes: {}\n".format(self.nbad))
@@ -573,16 +632,17 @@ def main(args):
 
             if P.nf == 2:
                 fr = PairedFastqReader(P.fqleft, P.fqright)
-                fr.demux(bm, nameleft, nameright, P.bcslice)
+                #print(P.odir)
+                fr.demux(bm, nameleft, nameright, P.bcslice, odir=P.odir)
             else:
                 fr = FastqReader(P.fqleft)
-                fr.demux(bm, nameleft, P.bcslice)
+                fr.demux(bm, nameleft, P.bcslice, odir=P.odir)
             bm.showCounts()
         elif fmt == "fasta":
             if not P.bcslice:
                 P.errmsg(P.NOSLICE)
             fr = FastaReader(P.fqleft)
-            fr.demux(bm, getFastqBasename(P.fqleft), P.bcslice)
+            fr.demux(bm, getFastqBasename(P.fqleft), P.bcslice, odir=P.odir)
             bm.showCounts()
         else:
             P.errmsg(P.BADFMT)

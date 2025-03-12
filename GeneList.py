@@ -280,6 +280,9 @@ class Genelist():
 
     def sortGenes(self):
         for chrom in self.chroms:
+#            for g in self.genes[chrom]:
+#                if g.start is None or g.end is None:
+#                    print(g.name)
             self.genes[chrom].sort(key=lambda g:g.start)
 
     def buildIndexes(self):
@@ -631,11 +634,11 @@ to the gene's (or transcript's) TSS.
                 else:
                     return (g2, -d2)
 
-    def getGeneInfo(self, geneid, query):
+    def getGeneInfo(self, geneid, query1, query2):
         with self:
             gcur = self.dbconn.cursor()
-            row = gcur.execute(query, (geneid,)).fetchone()
-            return row
+            #return gcur.execute(query, ("ID", geneid,)).fetchone() or gcur.execute(query, ("NAME", geneid,)).fetchone()
+            return gcur.execute(query1, (geneid,)).fetchone() or gcur.execute(query2, (geneid,)).fetchone() 
 
 # Transcript class
 
@@ -914,14 +917,8 @@ class Gene():
 
     def addTranscript(self, transcript):
         self.transcripts.append(transcript)
-        if self.start:
-            self.start = min(self.start, transcript.txstart)
-        else:
-            self.start = transcript.txstart
-        if self.end:
-            self.end = max(self.end, transcript.txend)
-        else:
-            self.end = transcript.txend
+        self.start = min(self.start, transcript.txstart) if self.start else transcript.txstart
+        self.end = max(self.end, transcript.txend) if self.end else transcript.txend
 
     def classifyPosition(self, position, updistance, dndistance, best=False):
         """Returns all possible classifications of `position' for the transcript of this gene.
@@ -1006,8 +1003,8 @@ class GeneLoader():
     def validateChrom(self, chrom):
         if chrom.startswith("scaff"):
             return chrom
-        if chrom.find("_") > 0:
-            return False
+#        if chrom.find("_") > 0:
+#            return False
         if chrom.find("random") > 0:
             return False
         if chrom.startswith('chr') or chrom.startswith('Chr'):
@@ -1142,7 +1139,9 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                 ann = self.parseAnnotations(line[8])
 
                 if btype == 'gene':
-                    self.currGene = Gene(ann['gene_id'], chrom, strand) 
+                    self.currGene = Gene(ann['gene_id'], chrom, strand)
+                    self.currGene.start = int(line[3])
+                    self.currGene.end = int(line[4])
                     self.currTranscript = None
                     if 'gene_name' in ann:
                         self.currGene.name = ann['gene_name']
@@ -1175,7 +1174,11 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     start = int(line[3])
                     end   = int(line[4])
                     self.currTranscript.addExon(start, end)
-        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+        if self.currTranscript:
+            self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+        else:
+            sys.stderr.write("No transcript for gene {}\n".format(self.currGene.name))
+            sys.exit(1)
 
 class GFFloader(GeneLoader):
     label = "GFF"
@@ -1229,7 +1232,7 @@ class GFFloader(GeneLoader):
                     self.currGene.start = int(line[3])
                     self.currGene.end   = int(line[4])
                     self.currGene.name = Utils.dget('Name', ann, "")
-                    self.currGene.biotype = Utils.dget('biotype', ann)
+                    self.currGene.biotype = Utils.dget('biotype', ann) or Utils.dget('gene_biotype', ann)
                     self.gl.add(self.currGene, chrom)
                     
                 elif tag in ['mRNA', 'transcript', 'processed_transcript', 'pseudogenic_transcript', 'pseudogene', 'processed_pseudogene', 'miRNA', 'lincRNA']:
@@ -1267,7 +1270,11 @@ class GFFloader(GeneLoader):
                         self.currTranscript.updateCDS(start, end)
                     else:
                         orphans += 1
-        self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+        if self.currTranscript:
+            self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
+        else:
+            sys.stderr.write("No transcript defined for gene {}!\n".format(self.currGene.name))
+            sys.exit(1)
         sys.stderr.write("Orphans: {}\n".format(orphans))
 
 class DBloader(GeneLoader):
