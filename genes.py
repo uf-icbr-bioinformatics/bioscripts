@@ -38,7 +38,7 @@ will be equal to the second one."""
 
 def readRegions(atfile, payload=None):
     """Read regions from a file indicated as @filename:col. Lines that don't have
-the required number of columns or that contains start and end positions that are
+the required number of columns or that contain start and end positions that are
 not numbers are silently ignored."""
     regs = []
     afr = Utils.AtFileReader(atfile)
@@ -102,8 +102,8 @@ class Classify(Script.Command):
     streams = {}
     
     def __init__(self):
-        self.totals = {'n': 0, 'u': 0, 'd': 0, 'E': 0, 'e': 0, 'i': 0, 'o': 0, '1': 0}
-        self.streams = {'u': None, 'd': None, 'E': None, 'e': None, 'i': None, 'o': None, 's': None}
+        self.totals = {}
+        self.streams = {}
 
     def add(self, key):
         if key in self.totals:
@@ -195,6 +195,7 @@ Options:
 """.format(P.updistance, P.updistance, P.dndistance))
     
     def run(self, P):
+        C = GeneList.Classifier(P.classificationOrder)
         maxd = max(P.updistance, P.dndistance)
 
         RS = RegionSource(P.args)
@@ -217,11 +218,7 @@ Options:
                     hdr += "\t" + P.idname
                 out.write(hdr + "\n")
                 
-            while True:
-                reg = RS.next()
-                if not reg:
-                    break
-
+            for reg in RS:
                 start = reg.start
                 end   = reg.end
                 pos   = (start + end) / 2
@@ -231,18 +228,12 @@ Options:
                     for g in genes:
                         for tr in g.transcripts:
                             if (not P.canonical) or tr.canonical:
-                                cls = tr.classifyPosition(pos, P.updistance, P.dndistance)
+                                cls = tr.classifyPosition(C, pos, P.updistance, P.dndistance)
                                 if cls is None:
                                     continue
-                                if cls.extra:
-                                    exn = str(cls.extra)
-                                else:
-                                    exn = ""
-                                if P.idcol:
-                                    extra = "\t" + reg.payload[P.idcol]
-                                else:
-                                    extra = ""
-                                out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}{}\n".format(reg.chrom, start, end, g.name, tr.ID, tr.accession, cls.name, exn, extra))
+                                exn = str(cls.extra) if cls.extra else ""
+                                extra = "\t" + reg.payload[P.idcol] if P.idcol else ""
+                                out.write(f"{reg.chrom}\t{start}\t{end}\t{g.name}\t{tr.ID}\t{tr.accession}\t{cls.key}\t{exn}{extra}\n")
                 elif P.mode == "g":
                     #print( (start, end, pos, genes) )
                     allclasses = []
@@ -265,15 +256,15 @@ Options:
                         exn  = cls.extra or "-"
 
                         if P.addBedFields:
-                            out.write("\t".join(reg.payload) + "\t{}\t{}\t{}\t{}\n".format(name, gid, cls.name, exn))
+                            out.write("\t".join(reg.payload) + f"\t{name}\t{gid}\t{cls.name}\t{exn}\n")
                         else:
-                            out.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(reg.chrom, start, end, name, gid, cls.name, exn))
+                            out.write(f"{reg.chrom}\t{start}\t{end}\t{name}\t{gid}\t{cls.name}\t{exn}\n")
                 elif P.mode == "s":
                     if len(genes) == 0:
                         self.add('o')
                     else:
                         for g in genes:
-                            c = g.classifyPosition(pos, P.updistance, P.dndistance)
+                            c = g.classifyPosition(classifier, pos, P.updistance, P.dndistance)
                             for x in c:
                                 ctype = x.name
                                 if ctype in 'eE' and x.extra == 1:
@@ -746,7 +737,8 @@ class Prog(Script.Script):
     bestonly = False            # If True, display best classification only (-b)
     enhancers = ""
     position = False
-
+    classificationOrder = "Eeuidho"
+    
     def parseArgs(self, args):
         cmd = None
         prev = ""
@@ -801,7 +793,7 @@ class Prog(Script.Script):
                 self.mode = "a"
                 prev = ""
             elif prev == "-R":
-                GeneList.setClassificationOrder(a)
+                self.classificationOrder = a
                 prev = ""
             elif a in ["-db", "-d", "-dup", "-ddn", "-f", "-r", "-x", "-b", "-o", "-c", "-w", "-e", "-R"]:
                 prev = a

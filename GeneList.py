@@ -61,6 +61,7 @@ def parseCoords(c):
 
 class Classif(object):
     idx = 0
+    key = ""
     name = ""
     subject = None
     extra = ""
@@ -70,51 +71,72 @@ class Classif(object):
         self.extra = extra
 
 class CL_NONE(Classif):
-    idx = 0
-    name = 'o'
-
+    key = 'o'
+    name = 'Other'
+    
 class CL_CODING(Classif):
-    idx = 90
-    name = 'E'
+    key = 'E'
+    name = 'Coding exon'
 
 class CL_EXON(Classif):
-    idx = 80
-    name = 'e'
+    key = 'e'
+    name = 'Exon'
 
 class CL_UPSTREAM(Classif):
-    idx = 70
-    name = 'u'
+    key = 'u'
+    name = 'Upstream'
 
 class CL_INTRON(Classif):
-    idx = 60
-    name = 'i'
+    key = 'i'
+    name = 'Intron'
 
 class CL_DNSTREAM(Classif):
-    idx = 50
-    name = 'd'
+    key = 'd'
+    name = 'Downstream'
 
 class CL_ENHANCER(Classif):
-    idx = 65
-    name = 'h'
+    key = 'h'
+    name = 'Enhancer'
 
-CLASSIFICATIONS = [CL_NONE, CL_CODING, CL_EXON, CL_UPSTREAM, CL_INTRON, CL_DNSTREAM, CL_ENHANCER]
+class Classifier():
+    _cls = {'o': CL_NONE, 'E': CL_CODING, 'e': CL_EXON, 'u': CL_UPSTREAM, 'i': CL_INTRON, 'd': CL_DNSTREAM, 'h': CL_ENHANCER}
+    classifications = []
+    totals = {}
+    
+    def __init__(self, keys="Eeuidho"):
+        self.setOrder(keys)
 
-def setClassificationOrder(keys):
-    idx = 100
-    for cl in CLASSIFICATIONS:
-        cl.idx = 0
-    for key in keys:
-        for cl in CLASSIFICATIONS:
-            if cl.name == key:
-                cl.idx = idx
-                idx += -1
+    def setOrder(self, keys):
+        pri = 10
+        self.classifications = []
+        self.totals = {}
+        for k in keys:
+            cls = self._cls[k]
+            cls.idx = pri
+            self.classifications.append(cls)
+            pri += 10
+            self.totals[k] = 0
+        self.totals['n'] = 0
 
+    def get(self, key, subject, extra=None):
+        """If there is a classifier with key `key', return an instance of
+it with the specified subject and extra. Also updates the corresponding
+key in the totals. Otherwise, return None."""
+        for clc in self.classifications:
+            if clc.key == key:
+                cls = clc()
+                cls.subject = subject
+                cls.extra = extra
+                self.totals[key] += 1
+                return cls
+        return None
+            
 def addClassification(cls, clist):
     """Add classification `cls' to list `clist' only if
 it does not already appear."""
     for x in clist:
-        if x.name == cls.name:
-            if cls.name in "Ee":
+        if x.key == cls.key:
+            if cls.key in "Ee":
                 if cls.extra == x.extra:
                     return clist
             else:
@@ -122,9 +144,9 @@ it does not already appear."""
     clist.append(cls)
     return clist
 
-def sortClassifications(cls):
-    cls.sort(key=lambda c: c.idx, reverse=True)
-    return cls
+def sortClassifications(clist):
+    clist.sort(key=lambda c: c.idx)
+    return clist
 
 # Classes
 
@@ -184,7 +206,7 @@ class Genelist():
             gid = r[0]
             maxtr = 0
             best  = ""
-            for tr in c.execute("SELECT ID, txstart, txend FROM Transcripts WHERE parentID=?;", (gid,)):
+            for tr in c.execute("SELECT ID, txstart, txend FROM Transcripts WHERE parentID=? AND cdslen > 0;", (gid,)):
                 m = int(tr[2]) - int(tr[1])
                 if m > maxtr:
                     maxtr = m
@@ -651,8 +673,10 @@ class Transcript():
     enst = ""
     txstart = 0
     txend = 0
+    txlen = 0
     cdsstart = None
     cdsend = None
+    cdslen = 0
     strand = None
     canonical = False
     exons = []
@@ -689,8 +713,8 @@ class Transcript():
             idx += 1
 
         try:
-            conn.execute("INSERT INTO Transcripts (ID, parentID, name, accession, enst, chrom, strand, txstart, txend, cdsstart, cdsend) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                         (self.ID, parentID, self.name, self.accession, self.enst, self.chrom, self.strand, self.txstart, self.txend, self.cdsstart, self.cdsend))
+            conn.execute("INSERT INTO Transcripts (ID, parentID, name, accession, enst, chrom, strand, txstart, txend, txlen, cdsstart, cdsend, cdslen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                         (self.ID, parentID, self.name, self.accession, self.enst, self.chrom, self.strand, self.txstart, self.txend, self.txlen, self.cdsstart, self.cdsend, self.cdslen))
         except sql.IntegrityError:
             sys.stderr.write("Error: transcript ID {} is not unique.\n".format(self.ID))
 
@@ -704,14 +728,8 @@ class Transcript():
         self.exons.append((introns[-1][1], self.txend))
 
     def updateCDS(self, cdsstart, cdsend):
-        if self.cdsstart:
-            self.cdsstart = min(self.cdsstart, cdsstart)
-        else:
-            self.cdsstart = cdsstart
-        if self.cdsend:
-            self.cdsend = max(self.cdsend, cdsend)
-        else:
-            self.cdsend = cdsend
+        self.cdsstart = min(self.cdsstart, cdsstart) if self.cdsstart else cdsstart
+        self.cdsend = max(self.cdsend, cdsend) if self.cdsend else cdsend
 
     def setCDS(self, cdsstart, cdsend):
         """Set the CDS of this transcript to `cdsstart' and `cdsend'. This also sets the
@@ -721,8 +739,36 @@ smallrects and largerects lists."""
             self.cdsend   = cdsend
             self.smallrects = []    # we're recomputing them
             self.largerects = []    # from scratch
-            small = True
+            #self.txlen = 0          # Compute length of mRNA
+            #self.cdslen = 0         # Compute length of coding sequence too
+            
+            #incds = False
+            #for e in self.exons:
+            #    self.txlen += (e[1] - e[0] + 1)
+                # if (e[0] <= self.cdsstart < self.cdsend <= e[1]): # CDS entirely contained in exon?
+                #     self.cdslen += (self.cdsend - self.cdsstart + 1)  # set its length
+                #     break                                         # done.
+                # if self.strand == 1:
+                #     if (e[0] <= self.cdsstart <= e[1]):           # exon contains start of CDS
+                #         incds = True
+                #         self.cdslen += (e[1] - self.cdsstart + 1)
+                #     elif (e[0] <= self.cdsend <= e[1]):           # exon contains end of CDS
+                #         incds = False
+                #         self.cdslen += (self.cdsend - e[0] + 1)
+                #     elif incds:
+                #         self.cdslen += (e[1] - e[0] + 1)
+                        
+                # else:           # for transcripts on - strand
+                #     if (e[0] <= self.cdsend <= e[1]):           # exon contains start of CDS
+                #         incds = True
+                #         self.cdslen += (self.cdsend - e[0] + 1)
+                #     elif (e[0] <= self.cdsstart <= e[1]):           # exon contains end of CDS
+                #         incds = False
+                #         self.cdslen += (e[1] - self.cdsstart + 1)
+                #     elif incds:
+                #         self.cdslen += (e[1] - e[0] + 1)
 
+            small = True
             for e in self.exons:
                 if (e[0] <= self.cdsstart < self.cdsend <= e[1]): # CDS entirely contained in exon?
                     self.smallrects.append((e[0], self.cdsstart))
@@ -761,7 +807,7 @@ smallrects and largerects lists."""
 
     def positionMatch(self, pos, mode, distance):
         """Return True if position `pos' matches transcript according to `mode'.
-`mode' can be one of b, P, d, e, or i. `distance' is used when `mode' includes p or d."""
+`mode' can be one of b, p, d, e, or i. `distance' is used when `mode' includes p or d."""
         for m in mode:
             if m == 'b':
                 if self.txstart <= pos <= self.txend:
@@ -788,7 +834,7 @@ smallrects and largerects lists."""
                     return True
         return False
 
-    def classifyPosition(self, pos, updistance, dndistance):
+    def classifyPosition(self, classifier, pos, updistance, dndistance):
         """Returns a Classif instance that classifies position `pos' within this transcript,
 including `updistance' bases upstream of the TSS and `dndistance' bases downstream of the TES.
 If the class is CL_CODING, CL_EXON, or CL_INTRON, the `extra' attribute contains the exon or
@@ -797,24 +843,24 @@ intron number.
 #        print((pos, self.txstart, self.txend, self.cdsstart, self.cdsend))
         if self.txstart <= pos <= self.txend:
             ne = self.posInExon(pos)
-            if ne>0:
+            if ne > 0:
                 if self.cdsstart and self.cdsend and (self.cdsstart <= pos <= self.cdsend):
-                    return CL_CODING(subject=self, extra=ne)
+                    return classifier.get('E', self, extra=ne)
                 else:
-                    return CL_EXON(subject=self, extra=ne)
-            return CL_INTRON(subject=self, extra=ne)
+                    return classifier.get('e', self, extra=ne)
+            return classifier.get('i', self, extra=ne)
         elif self.strand == 1:
             if self.txstart - updistance <= pos < self.txstart:
-                return CL_UPSTREAM(subject=self)
+                return classifier.get('u', self)
             elif self.txend < pos <= self.txend + dndistance:
-                return CL_DNSTREAM(subject=self)
+                return classifier.get('d', self)
             else:
                 return None
         else:
             if self.txstart - dndistance <= pos < self.txstart:
-                return CL_DNSTREAM(subject=self)
+                return classifier.get('d', self)
             elif self.txend < pos <= self.txend + updistance:
-                return CL_UPSTREAM(subject=self)
+                return classifier.get('u', self)
             else:
                 return None
             
@@ -920,18 +966,18 @@ class Gene():
         self.start = min(self.start, transcript.txstart) if self.start else transcript.txstart
         self.end = max(self.end, transcript.txend) if self.end else transcript.txend
 
-    def classifyPosition(self, position, updistance, dndistance, best=False):
+    def classifyPosition(self, classifier, position, updistance, dndistance, best=False):
         """Returns all possible classifications of `position' for the transcript of this gene.
 If `best' is True, only returns a single classification, ie the first one to appear in this list: """
         result = []
         for tr in self.transcripts:
-            c = tr.classifyPosition(position, updistance, dndistance)
+            c = tr.classifyPosition(classifier, position, updistance, dndistance)
             #print((tr.ID, c))
             if c:
                 c.subject = self
                 addClassification(c, result)
         if len(result) == 0:
-            return [CL_NONE()]
+            return [classifier.get('o')]
         else:
             sortClassifications(result)
         if best:
@@ -1169,10 +1215,12 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     start = int(line[3])
                     end   = int(line[4])
                     #self.currTranscript.setCDS(start, end)
+                    self.currTranscript.cdslen += (end - start + 1)
                     self.currTranscript.updateCDS(start, end)
                 elif btype == 'exon':
                     start = int(line[3])
                     end   = int(line[4])
+                    self.currTranscript.txlen += (end - start + 1)
                     self.currTranscript.addExon(start, end)
         if self.currTranscript:
             self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
@@ -1326,7 +1374,7 @@ def initializeDB(filename):
         for field in ['name', 'geneid', 'ensg', 'chrom', 'start', 'end']:
             conn.execute("CREATE INDEX Genes_{} on Genes({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Transcripts;")
-        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, cdsstart int, cdsend int, canonical char(1) default 'N', tss int default null);")
+        conn.execute("CREATE TABLE Transcripts (ID varchar primary key, parentID varchar, name varchar, accession varchar, enst varchar, chrom varchar, strand int, txstart int, txend int, txlen int default 0, cdsstart int, cdsend int, cdslen int default 0, canonical char(1) default 'N', tss int default null);")
         for field in ['parentID', 'name', 'accession', 'enst', 'chrom', 'txstart', 'txend']:
             conn.execute("CREATE INDEX Trans_{} on Transcripts({});".format(field, field))
         conn.execute("DROP TABLE IF EXISTS Exons;")

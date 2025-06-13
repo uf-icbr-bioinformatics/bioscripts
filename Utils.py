@@ -8,7 +8,7 @@ import csv
 import math
 import gzip
 import time
-import pysam
+#import pysam
 import string
 import random
 

@@ -43,23 +43,26 @@ class RegionSource(object):
         self.sources = sources
         self._nsources = len(sources)
 
-    def next(self):
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
         if self._idx >= self._nsources:
-            return None
+            raise StopIteration
         if self._reader:
-                row = self._reader.readline()
-                if row:
-                    reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+self.endcol])
-                    if reg:
-                        reg.payload = row
-                        return reg
-                    else:
-                        return self.next()
+            row = self._reader.readline()
+            if row:
+                reg = Region(row[self._reader.col], row[self._reader.col+1], row[self._reader.col+self.endcol])
+                if reg:
+                    reg.payload = row
+                    return reg
                 else:
-                    self._reader.close()
-                    self._reader = None
-                    self._idx += 1
-                    return self.next()
+                    return self.__next__()
+            else:
+                self._reader.close()
+                self._reader = None
+                self._idx += 1
+                return self.__next__()
         else:
             src = self.sources[self._idx]
             if src[0] == '@':
@@ -73,7 +76,7 @@ class RegionSource(object):
                     self._reader.close()
                     self._reader = None
                     self._idx += 1
-                    return self.next()
+                    return self.__next__()
             else:
                 self._idx += 1
                 return Region(src)
