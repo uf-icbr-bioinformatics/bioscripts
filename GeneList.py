@@ -1199,6 +1199,19 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                     self.gl.add(self.currGene, chrom)
 
                 elif btype == 'transcript':
+                    sys.stderr.write(f"{ann['transcript_id']}\t{ann['gene_id']}\n")
+                    # Ensure we have a gene, create an empty one if necessary.
+                    if self.currGene is None or self.currGene.ID != ann['gene_id']:
+                        cg = Gene(ann['gene_id'], chrom, strand)
+                        cg.start = int(line[3])
+                        cg.end = int(line[4])
+                        if cg.ID.startswith("gene:"):
+                            cg.name = cg.ID[5:]
+                        else:
+                            cg.name = cg.ID
+                        self.currGene = cg
+                        self.gl.add(cg, chrom)
+                        
                     txid = ann['transcript_id']
                     if self.currTranscript:
                         self.currTranscript.setCDS(self.currTranscript.cdsstart, self.currTranscript.cdsend) # Seems redundant, but we can only do this after all exons have been collected
@@ -1211,6 +1224,7 @@ is in this list (or missing). If `notwanted' is specified, only include genes wh
                         self.currTranscript.enst = txid
                     self.currTranscript.exons   = []
                     self.currGene.addTranscript(self.currTranscript)
+                    
                 elif btype == 'CDS':
                     start = int(line[3])
                     end   = int(line[4])
