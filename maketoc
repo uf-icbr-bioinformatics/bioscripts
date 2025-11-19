@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import stat
+import glob
+import importlib
+
+def aget(obj, attr, default=""):
+    if hasattr(obj, attr):
+        return getattr(obj, attr) or default
+    else:
+        return default
+
+def main():
+    pyfiles = glob.glob("*.py")
+    execs = []
+    maxlen = 0
+    for pyfile in pyfiles:
+        s = os.stat(pyfile)
+        if s.st_mode & stat.S_IXOTH:
+            execs.append(pyfile)
+            maxlen = max(maxlen, len(pyfile))
+        else:
+            print "-- " + pyfile
+    execs.sort()
+    fmt = "{:" + str(maxlen) + "} - {}\n"
+    for pyfile in execs:
+        pyname = pyfile[:-3]
+        m = importlib.import_module(pyname)
+        doc = aget(m, "__doc__")
+        sys.stdout.write(fmt.format(pyfile, doc))
+
+if __name__ == "__main__":
+    main()
